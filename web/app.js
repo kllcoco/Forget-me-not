@@ -662,32 +662,59 @@ function focusSun() {
 
 // ------------------------------------------------------------------ 我眼中的你（绕着心核转的小卫星）
 const ptModal = $('#portraitmodal');
+// 与 lib/core/portrait.js 的分区保持一致
+const PT_SECTIONS = [
+  ['basics', '基本信息', '称呼、年龄或生日、所在城市、职业或学业、家庭情况'], ['personality', '性格', 'TA 是个怎样的人'],
+  ['people', '身边重要的人', '家人、朋友、同事、宠物'], ['likes', '喜欢的', '爱吃的、爱玩的、喜欢的音乐电影书'],
+  ['dislikes', '不喜欢的', '讨厌的东西、受不了的事'], ['routine', '作息与习惯', '几点睡几点起、周末怎么过'],
+  ['emotions', '情绪', '什么让 TA 开心或难过，难过时怎么陪'], ['communication', '沟通方式', '喜欢怎样被说话、暗号'],
+  ['now', '最近', '最近在经历、在忙、在烦恼的事'], ['dreams', '目标与梦想', '想成为的人、想做的事'],
+  ['values', '在意的事', '价值观、原则、底线'], ['us', '我们', '我们的关系、默契、共同回忆'],
+];
+let ptEditing = false;
 function openPortrait() {
-  const P = S.portrait;
-  $('#pt-title').textContent = `${personaName()}眼中的你`;
-  $('#pt-sub').textContent = `绕着心核转的小卫星。这不是封存的记忆，而是${personaName()}此刻对你的理解，会随着相处慢慢改写；你也可以自己改。`;
+  const P = S.portrait, nm = personaName();
+  $('#pt-title').textContent = `${nm}眼中的你`;
+  $('#pt-sub').textContent = `绕着心核转的小卫星：${nm}对你的了解，就像对老朋友心里的那份档案。它不是封存的记忆，${nm}知道了新的事就会更新对应的那一栏；你也可以自己改。`;
+  ptEditing = false; $('#pt-save').style.display = 'none'; $('#pt-err').textContent = '';
   if (S.sealed) { $('#pt-body').innerHTML = '<p class="sub">钥匙不在，看不到。</p>'; $('#pt-edit').style.display = 'none'; ptModal.classList.add('show'); return; }
-  $('#pt-edit').style.display = '';
-  const who = b => b === 'user' ? '你' : b === 'admin' ? '你' : personaName();
-  $('#pt-body').innerHTML = P
-    ? `${P.name ? `<div class="pt-name">称呼 · ${esc(P.name)}</div>` : ''}<div class="pt-text">${esc(P.content)}</div>
-       <div class="pt-meta">${fmtDate(P.at)} · ${esc(who(P.by))}写的${P.reason ? ` · ${esc(P.reason)}` : ''}</div>
-       ${(P.history || []).length ? `<details><summary>以前的看法（${P.history.length}）</summary>${P.history.map(h => `<div class="pt-old"><div class="pt-meta">${fmtDate(h.at)} · ${esc(who(h.by))}写的${h.reason ? ` · ${esc(h.reason)}` : ''}</div>${esc(h.content)}</div>`).join('')}</details>` : ''}`
-    : `<p class="sub">${esc(personaName())}还没有写下对你的看法。聊得多了，${pronoun()}会慢慢写下来；你也可以先帮${pronoun()}起个头。</p>`;
-  $('#pt-text').style.display = 'none'; $('#pt-name').style.display = 'none'; $('#pt-save').style.display = 'none'; $('#pt-err').textContent = '';
+  $('#pt-edit').style.display = ''; $('#pt-edit').textContent = '我来改';
+  const who = b => b === 'user' || b === 'admin' ? '你' : nm;
+  const sec = P?.sections || {}, known = PT_SECTIONS.filter(([k]) => sec[k]).length;
+  const R = 26, C = 2 * Math.PI * R, frac = known / PT_SECTIONS.length;
+  $('#pt-body').innerHTML = `
+    <div class="pt-head">
+      <svg class="pt-meter" viewBox="0 0 64 64"><circle cx="32" cy="32" r="${R}" fill="none" stroke="rgba(200,214,255,.12)" stroke-width="4"/>
+        <circle cx="32" cy="32" r="${R}" fill="none" stroke="#cfe0ff" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 32 32)" style="filter:drop-shadow(0 0 4px #9fb8ff)"/>
+        <text x="32" y="36" text-anchor="middle">${known}/${PT_SECTIONS.length}</text></svg>
+      <div><div class="pt-name">${P?.name ? `称呼 · ${esc(P.name)}` : '了解程度'}</div>
+        <div class="pt-sum">${P?.summary ? esc(P.summary) : `${nm}还在慢慢认识你。`}</div></div>
+    </div>
+    <div class="pt-grid">${PT_SECTIONS.map(([k, name, hint]) => `<div class="pt-sec ${sec[k] ? '' : 'empty'}"><b>${name}</b><span>${sec[k] ? esc(sec[k]) : `还不了解 · ${hint}`}</span></div>`).join('')}</div>
+    ${(P?.unknowns || []).length ? `<div class="pt-unk"><b>${nm}还想知道的</b>${P.unknowns.map(u => `<span>${esc(u)}</span>`).join('')}</div>` : ''}
+    ${P ? `<div class="pt-meta">最近一次：${fmtDate(P.at)} · ${esc(who(P.by))}改的${P.reason ? ` · ${esc(P.reason)}` : ''}</div>` : ''}
+    ${(P?.history || []).length ? `<details><summary>改动记录（${P.history.length}）</summary>${P.history.map(h => `<div class="pt-old"><div class="pt-meta">${fmtDate(h.at)} · ${esc(who(h.by))}改的${h.reason ? ` · ${esc(h.reason)}` : ''}</div>了解程度 ${h.known}/${h.total}${h.summary ? ` · ${esc(h.summary)}` : ''}</div>`).join('')}</details>` : ''}`;
   ptModal.classList.add('show');
 }
 $('#pt-close').onclick = () => ptModal.classList.remove('show');
 $('#pt-edit').onclick = () => {
   if (!S.key.unlocked) { ptModal.classList.remove('show'); openKey(); return; }
-  $('#pt-text').value = S.portrait?.content || ''; $('#pt-name').value = S.portrait?.name || '';
-  for (const id of ['#pt-text', '#pt-name', '#pt-save']) $(id).style.display = '';
-  $('#pt-text').focus();
+  if (ptEditing) { openPortrait(); return; }
+  ptEditing = true;
+  const P = S.portrait || {}, sec = P.sections || {};
+  $('#pt-body').innerHTML = `<div class="pt-form">
+    <label>称呼<input id="pf2-name" value="${esc(P.name || '')}" maxlength="40" placeholder="你喜欢被怎么叫"></label>
+    <label>总体印象<textarea id="pf2-summary" placeholder="一两句话">${esc(P.summary || '')}</textarea></label>
+    ${PT_SECTIONS.map(([k, name, hint]) => `<label>${name}<textarea data-sec="${k}" placeholder="${hint}">${esc(sec[k] || '')}</textarea></label>`).join('')}
+    <label>还想知道的（一行一件）<textarea id="pf2-unknowns">${esc((P.unknowns || []).join('\n'))}</textarea></label></div>`;
+  $('#pt-edit').textContent = '取消'; $('#pt-save').style.display = '';
 };
 $('#pt-save').onclick = async () => {
+  const sections = Object.fromEntries([...document.querySelectorAll('#pt-body [data-sec]')].map(t => [t.dataset.sec, t.value]));
   try {
-    await api('api/portrait', { method: 'POST', body: { content: $('#pt-text').value, name: $('#pt-name').value } });
-    await loadBrain(); openPortrait(); toast('<b>我眼中的你</b>已经按你写的改好了', '#e6eeff');
+    await api('api/portrait', { method: 'POST', body: { name: $('#pf2-name').value, summary: $('#pf2-summary').value, sections,
+      unknowns: $('#pf2-unknowns').value.split('\n').map(x => x.trim()).filter(Boolean) } });
+    await loadBrain(); openPortrait(); toast(`<b>${esc(personaName())}眼中的你</b>已经按你写的改好了`, '#e6eeff');
   } catch (e) { $('#pt-err').textContent = e.message; }
 };
 
