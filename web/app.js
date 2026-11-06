@@ -254,10 +254,14 @@ function underUI(x, y) {
   }
   return coverRects.some(r => x > r.left - 24 && x < r.right + 24 && y > r.top - 16 && y < r.bottom + 16);
 }
+// 脑图里标签的优先级：心核 > 我眼中的你 > 记忆行星 > 过程器官；后画的撞上先画的就压暗，避免中心一团字叠在一起
+const LBL_PRIO = L => L.region.key === 'sun' ? 0 : L.region.kind === 'satellite' ? 1 : L.region.kind === 'process' ? 3 : 2;
+let labelOrder = null, labelOrderSrc = null;
 function updateLabels(dist) {
   const base = smooth(80, 34, dist) * 0.9 + 0.1;
-  const tmp = {};
-  for (const L of labelEls) {
+  const tmp = {}, placed = [];
+  if (labelOrderSrc !== labelEls) { labelOrderSrc = labelEls; labelOrder = labelEls.slice().sort((a, b) => LBL_PRIO(a) - LBL_PRIO(b)); }
+  for (const L of labelOrder) {
     if (L.view !== S.view) { L.el.style.opacity = '0'; L.el.style.pointerEvents = 'none'; continue; }
     const anc = typeof L.anchor === 'function' ? L.anchor() : L.anchor;
     project(anc, tmp);
@@ -266,11 +270,17 @@ function updateLabels(dist) {
       : L.region.kind === 'process' ? smooth(30, 12, dist) * 0.85 : base * smooth(1.5, 5, d);
     if (reel.on) o *= L.region.key === reel.region ? 1 : 0.12;
     if (!tmp.vis) o = 0;
-    if (o > 0.01 && underUI(tmp.x, tmp.y)) o *= 0.06;
     const sc = clamp((L.view === 'brain' ? 110 : 26) / d, 0.55, 1.5);
-    L.el.style.opacity = o.toFixed(3);
     // 脑图里标签整个放在行星上方（底边对齐），并且让鼠标穿过去，这样不会挡住行星
     const brainLbl = L.view === 'brain';   // 脑图里所有标签（包括太阳的）都让鼠标穿过，点击交给画面去判断
+    const w = (L.w ||= L.el.offsetWidth) * sc, h = (L.h ||= L.el.offsetHeight) * sc;
+    const cy = brainLbl ? tmp.y - h / 2 : tmp.y;   // 用标签框的中心判断，而不是锚点（脑图标签在锚点上方）
+    if (o > 0.01 && underUI(tmp.x, cy)) o *= 0.06;
+    if (brainLbl && o > 0.3) {
+      const r = { l: tmp.x - w / 2, r: tmp.x + w / 2, t: tmp.y - h, b: tmp.y };
+      if (placed.some(q => r.l < q.r && r.r > q.l && r.t < q.b && r.b > q.t)) o *= 0.15; else placed.push(r);
+    }
+    L.el.style.opacity = o.toFixed(3);
     L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, ${brainLbl ? '-100%' : '-50%'}) scale(${sc.toFixed(3)})`;
     L.el.style.transformOrigin = brainLbl ? '50% 100%' : '50% 50%';
     L.el.style.pointerEvents = o > 0.3 && !brainLbl ? 'auto' : 'none';
@@ -316,12 +326,13 @@ function renderStats() {
 // ------------------------------------------------------------------ 镜头飞行（过场）
 let flight = null;
 // straight：直线飞（穿越用，不绕弯、不回弹）；warp：'in' 越飞越快，'out' 从最快慢慢停下，true 中间最快
-function flyTo(pos, target, dur = 2.4, { warp = true, cinema = false, straight = false, easing = ease, done } = {}) {
+function flyTo(pos, target, dur = 2.4, { warp = true, cinema = false, straight = false, easing = ease, white = null, sys = false, done } = {}) {
+  if (swapping && !sys) return;   // 穿越星核的过场里不接受别的飞行，否则会把过场的 done 顶掉，swapping 永远卡在 true
   const p0 = camera.position.clone(), t0 = controls.target.clone();
   const dir = new THREE.Vector3().subVectors(pos, target).normalize();
   const c1 = straight ? p0.clone().lerp(pos, 1 / 3) : p0.clone().lerp(target, 0.15).add(new THREE.Vector3(0, 3, 0));
   const c2 = straight ? p0.clone().lerp(pos, 2 / 3) : pos.clone().addScaledVector(dir, 5).add(new THREE.Vector3(0, 2.5, 0));
-  flight = { p0, c1, c2, p1: pos.clone(), t0, t1: target.clone(), dur, k: 0, warp, done, easing };
+  flight = { p0, c1, c2, p1: pos.clone(), t0, t1: target.clone(), dur, k: 0, warp, done, easing, white };
   if (cinema) document.body.classList.add('cinema');
   controls.enabled = false;
 }
@@ -334,6 +345,8 @@ function stepFlight(dt) {
   const w = f.warp === 'in' ? e * e : f.warp === 'out' ? (1 - e) ** 2 : f.warp ? Math.sin(Math.PI * f.k) : 0;
   camera.fov = 45 + 16 * w; camera.updateProjectionMatrix();
   bloom.strength = 0.9 + 0.8 * w; dust.material.uniforms.uWarp.value = w;
+  // 白光跟着飞行进度走（不用 CSS 定时器）：掉帧时也保证换场景那一帧刚好全白
+  if (f.white) whiteEl.style.opacity = (f.white === 'in' ? smooth(0.45, 1, f.k) : 1 - smooth(0, 0.6, f.k)).toFixed(3);
   camera.lookAt(controls.target);
   if (f.k >= 1) {
     flight = null; controls.enabled = S.mode !== 'intro'; camera.fov = 45; camera.updateProjectionMatrix(); bloom.strength = 0.9;
@@ -373,6 +386,7 @@ function chainOf(m) {
   return out;
 }
 function startChain(m) {
+  if (swapping) return;
   reel.chain = m.id; reel.region = m.region; reel.on = true;
   reel.list = chainOf(m); reel.i = 0; reel.playing = true; reel.t = 0; reel.follow = false; hideHint();
   S.mode = 'reel'; document.body.classList.add('reel', 'cinema');
@@ -391,6 +405,7 @@ function refreshReelList() {
 }
 
 function startReel(region, startId, { cinematic = true } = {}) {
+  if (swapping) return;
   reel.region = region; reel.on = true; reel.list = []; reel.chain = null;
   refreshReelList();
   if (!reel.list.length) { reel.on = false; toast(`${S.regionBy[region].name} 里还没有记忆`, S.regionBy[region].color); return; }
@@ -584,6 +599,7 @@ function fitBrainHome() {
   BRAIN_HOME.target.set(NARROW ? 0 : R * 0.12, -R * 0.06, 0);
 }
 let swapping = false;
+const whiteEl = $('#whiteout');
 function setView(v) {
   S.view = v;
   for (const o of ringObjs) o.visible = v === 'ring';
@@ -612,39 +628,36 @@ function flash(peakAt, fn) {
 function enterBrain() {
   if (swapping || S.view === 'brain') return; swapping = true;
   if (reel.on) exitReel();
-  controls.autoRotate = false; $('#rot').classList.remove('on');
-  // 一镜到底：先一路加速冲进星核（白光慢慢亮起）→ 在最亮的一刻换成脑图 →
-  // 镜头从远处继续往前冲、慢慢减速停在太阳系前面（运动方向始终向前，不会倒退、不会穿过行星）
-  const into = camera.position.clone().sub(controls.target).normalize().multiplyScalar(0.35);
-  flyTo(into, new THREE.Vector3(), 0.95, { straight: true, warp: 'in', easing: t => t * t * t });
-  const w = $('#whiteout'); w.style.transition = 'opacity .55s ease-in'; setTimeout(() => { w.style.opacity = '1'; }, 400);
-  setTimeout(() => {
-    flight = null; setView('brain');
+  unfollow(); controls.autoRotate = false; $('#rot').classList.remove('on');
+  // 一镜到底：先一路加速冲进星核（白光跟着亮起）→ 飞到星核的那一帧全白、换成脑图 →
+  // 镜头从远处继续往前冲、慢慢减速停在太阳系前面。换场景由飞行的 done 触发，不靠定时器
+  whiteEl.style.transition = 'none'; whiteEl.classList.add('full');
+  const into = camera.position.clone().setLength(0.35);   // 沿「镜头→星核」这条线冲进去
+  const dur = clamp(0.6 + camera.position.length() * 0.03, 0.95, 1.8);
+  flyTo(into, new THREE.Vector3(), dur, { sys: true, straight: true, warp: 'in', white: 'in', easing: t => t * t * t, done: () => {
+    whiteEl.style.opacity = '1'; setView('brain');
     const from = BRAIN_HOME.pos.clone().sub(BRAIN_HOME.target).multiplyScalar(2.6).add(BRAIN_HOME.target);
     camera.position.copy(from); controls.target.copy(BRAIN_HOME.target); camera.lookAt(BRAIN_HOME.target);
     camera.fov = 61; camera.updateProjectionMatrix();
-    flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 2.0, { straight: true, warp: 'out', easing: t => 1 - (1 - t) ** 3,
-      done: () => { swapping = false; S.idleAt = performance.now(); showGuide(); } });
-    w.style.transition = 'opacity 1.3s ease-out'; w.style.opacity = '0';
-  }, 960);
+    flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 2.0, { sys: true, straight: true, warp: 'out', white: 'out', easing: t => 1 - (1 - t) ** 3,
+      done: () => { swapping = false; whiteEl.classList.remove('full'); whiteEl.style.opacity = '0'; S.idleAt = performance.now(); showGuide(); } });
+  } });
 }
 function exitBrain() {
   if (swapping || S.view !== 'brain') return; swapping = true;
   if (reel.on) exitReel();
   unfollow(); $('#guide').classList.remove('show');
   // 反过来：往后退、越退越快 → 白光 → 从星核里退出来，慢慢停在星环前
+  whiteEl.style.transition = 'none'; whiteEl.classList.add('full');
   const back = camera.position.clone().sub(controls.target).multiplyScalar(2.2).add(controls.target);
-  flyTo(back, controls.target.clone(), 0.85, { straight: true, warp: 'in', easing: t => t * t * t });
-  const w = $('#whiteout'); w.style.transition = 'opacity .5s ease-in'; setTimeout(() => { w.style.opacity = '1'; }, 350);
-  setTimeout(() => {
-    flight = null; setView('ring');
+  flyTo(back, controls.target.clone(), 0.85, { sys: true, straight: true, warp: 'in', white: 'in', easing: t => t * t * t, done: () => {
+    whiteEl.style.opacity = '1'; setView('ring');
     const dir = HOME.pos.clone().sub(HOME.target).normalize();
     camera.position.copy(dir.multiplyScalar(0.4)); controls.target.copy(HOME.target); camera.lookAt(HOME.target);
     camera.fov = 61; camera.updateProjectionMatrix();
-    flyTo(HOME.pos, HOME.target, 2.2, { straight: true, warp: 'out', easing: t => 1 - (1 - t) ** 3,
-      done: () => { swapping = false; controls.autoRotate = true; $('#rot').classList.add('on'); S.idleAt = performance.now(); } });
-    w.style.transition = 'opacity 1.3s ease-out'; w.style.opacity = '0';
-  }, 880);
+    flyTo(HOME.pos, HOME.target, 2.2, { sys: true, straight: true, warp: 'out', white: 'out', easing: t => 1 - (1 - t) ** 3,
+      done: () => { swapping = false; whiteEl.classList.remove('full'); whiteEl.style.opacity = '0'; controls.autoRotate = true; $('#rot').classList.add('on'); S.idleAt = performance.now(); } });
+  } });
 }
 
 // ------------------------------------------------------------------ 人设卡（太阳 · 心核）+ 性格养成
@@ -692,7 +705,7 @@ function renderPersona() {
     </svg><ul>${hist}</ul>
     <div class="pbtns"><button id="pc-edit">编辑人设卡</button><label class="chip" style="padding:4px 11px;font-size:11.5px;cursor:pointer">导入角色卡<input type="file" id="pc-import" accept=".png,.json,image/png,application/json" hidden></label></div>`;
   $('#pc-edit').onclick = () => openPersonaEditor();
-  $('#pc-head').onclick = e => { if (e.target.closest('#pc-av') && !P.avatar) { e.stopPropagation(); openPersonaEditor(); } else focusSun(); };
+  $('#pc-head').onclick = e => { if (e.target.closest('#pc-av') && !P.avatar) { e.stopPropagation(); openPersonaEditor(); } else { el.classList.toggle('open'); focusSun(); } };
   $('#pc-import').onchange = e => e.target.files[0] && importCard(e.target.files[0]);
 }
 // 点心核：一张大卡片，直接把角色卡拖进来就是她的人设
@@ -867,9 +880,11 @@ addEventListener('drop', e => {
 // ------------------------------------------------------------------ 跟随一颗行星公转
 // 点行星：镜头飞过去跟着它公转，旁边弹出这颗行星的小窗（里面的记忆、放映按钮）
 function followPlanet(k) {
+  if (swapping) return;
   if (reel.on) exitReel();
   S.follow = k; controls.autoRotate = false; $('#rot').classList.remove('on');
-  const h = brain.hub(k), off = new THREE.Vector3(0, 9, 14);
+  // 仰角要高于 OrbitControls 的 maxPolarAngle 限制（≈36°），否则飞到终点那一帧会被硬掰上去 3°，之后跟随时还会一直和限制拉扯
+  const h = brain.hub(k), off = new THREE.Vector3(0, Math.sin(MIN_ELEV + 0.12), Math.cos(MIN_ELEV + 0.12)).multiplyScalar(16.6);
   flyTo(h.clone().add(off), h, 1.4, { warp: false, done: () => { S.followOff = off.clone(); } });
   showPlanetPanel(k);
 }
@@ -1054,7 +1069,7 @@ function updateZoomUI(dist) {
 
 $('#rot').onclick = e => { controls.autoRotate = !controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); };
 $('#reset').onclick = () => { exitReel(); unfollow(); if (S.view === 'brain') flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 1.8); else flyTo(HOME.pos, HOME.target, 2.2); };
-$('#brainbtn').onclick = () => { if (S.view === 'brain') exitBrain(); else { exitReel(); flyTo(new THREE.Vector3(0.6, 0.6, 3), new THREE.Vector3(0, 0, 0), 2.0, { done: enterBrain }); } };
+$('#brainbtn').onclick = () => { if (S.view === 'brain') exitBrain(); else enterBrain(); };   // 直接一路冲进星核，不先停在星核前再重新加速
 
 const hintEl = $('#enter');
 hintEl.textContent = matchMedia('(pointer: coarse)').matches ? '双指放大 · 靠近星光开始放映' : '滚轮拉近 · 靠近星光开始放映';
@@ -1595,6 +1610,7 @@ function tick() {
   fx.update(dt);
   if (organs) organs.material = fx.points.material;
   sky.group.rotation.y += dt * 0.004;
+  sky.group.position.copy(camera.position); galaxy.group.position.copy(camera.position);   // 背景星空当成无限远：脑图尺度大（镜头离中心几百），不然镜头会飞出星空球壳、背景突然变空
 
   if (S.mode !== 'intro') {
     updateLabels(dist); updateZoomUI(dist); pick(); autoReel(dist);
@@ -1613,6 +1629,11 @@ if (new URLSearchParams(location.search).has('debug')) window.__fmn = { S, brain
     toast('<b>连接失败</b>没有找到记忆大脑服务', '#ff8fa6');
   }
   organs = buildOrgans();
+  // 先把脑图（默认隐藏）的着色器编译好：不然第一次进脑图那一帧要现编译，过场正中间会卡住一下
+  try {   // 预热：把脑图和星河（默认隐藏）先画一帧，着色器和几十万个点的缓冲区都提前传上 GPU；同一个任务里紧接着 tick() 会重画，用户看不到这一帧
+    brain.group.visible = true; galaxy.update(0, 0.01); composer.render();
+  } catch { }
+  brain.group.visible = S.view === 'brain'; galaxy.update(0, 0);
   const music = createMusic({ onToast: toast });
   music.load().then(() => music.play());
   tick();

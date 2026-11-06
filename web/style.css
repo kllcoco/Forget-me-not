@@ -206,6 +206,8 @@ body.cinema .letterbox { transform: none; }
 #intro .skip { position: fixed; right: 32px; bottom: 28px; font-size: 11px; letter-spacing: .4em; color: var(--muted); pointer-events: auto; opacity: .6; }
 body:not(.intro) #intro .skip { display: none; }
 #whiteout { position: fixed; inset: 0; z-index: 19; pointer-events: none; background: radial-gradient(circle, #fff 0%, #cfe0ff 30%, rgba(80,120,255,0) 70%); opacity: 0; transition: opacity .6s; }
+/* 穿越星核时铺满整屏（默认的径向光晕到四角是透明的，换场景那一帧四周会硬切） */
+#whiteout.full { background: radial-gradient(circle, #fff 0%, #f4f7ff 45%, #dde8ff 100%); }
 
 #enter { left: 50%; top: 66%; transform: translate(-50%, 0); padding: 12px 28px; border-radius: 999px; font-size: 13px; letter-spacing: .5em; text-indent: .5em;
   color: var(--ink); border: 1px solid rgba(200, 214, 255, .3); background: rgba(10, 16, 32, .35); backdrop-filter: blur(10px);
@@ -432,6 +434,9 @@ body.brain #enter, body.reel #enter { opacity: 0; pointer-events: none; }
   #strip .fr { width: 38px; height: 38px; } #strip .fr.on { width: 50px; height: 50px; }
   #feed { display: none; }
   #persona { left: 16px; right: 16px; width: auto; top: 160px; }
+  /* 手机上人设卡默认只露头像那一行，点开才展开雷达图——不然整张卡盖住太阳系，3D 标签全被 underUI() 压暗 */
+  #persona:not(.open) > :is(svg, ul, .desc, .pbtns) { display: none; }
+  #persona:not(.open) .card-head { margin-bottom: 0; }
   #toolbar { left: 16px; right: 16px; bottom: 18px; flex-wrap: wrap; }
   #zoom { right: 12px; }
   #card { width: min(340px, calc(100vw - 32px)); }
