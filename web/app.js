@@ -182,7 +182,7 @@ async function loadBrain(first = false) {
   const prev = S.byId;
   S.regions = data.regions; S.regionBy = Object.fromEntries(data.regions.map(r => [r.key, r]));
   S.stats = data.stats; S.sealed = data.sealed; S.key = data.key || S.key; S.types = data.types;
-  S.links = data.links || []; S.persona = data.persona;
+  S.links = data.links || []; S.persona = data.persona; S.portrait = data.portrait;
   if (first) S.lastEvent = data.last_event;
   S.memories = data.memories.map(m => {
     const old = prev.get(m.id);
@@ -216,16 +216,16 @@ function buildLabels() {
       anchor = ringPos(tm, 0, 0); const out = new THREE.Vector3(anchor.x, 0, anchor.z).normalize();
       anchor.addScaledVector(out, 2.1).add(new THREE.Vector3(0, 1.5, 0));
       el.onclick = () => openRegion(r.key);
-    } else {
+    } else if (ORGAN_POS[r.key]) {
       anchor = ORGAN_POS[r.key].clone().add(new THREE.Vector3(0, 0.75, 0));
     }
-    labelsEl.appendChild(el);
-    labelEls.push({ el, anchor, region: r, view: 'ring' });
+    if (anchor) { labelsEl.appendChild(el); labelEls.push({ el, anchor, region: r, view: 'ring' }); }   // 小卫星只在脑图里出现
     // 脑图里的大字标签
     const bel = el.cloneNode(true); bel.classList.remove('organ'); bel.classList.add('big');
     bel.onclick = () => openRegion(r.key);
     labelsEl.appendChild(bel);
-    const lift = new THREE.Vector3(0, r.key === 'longterm' ? 4.2 : r.kind === 'process' ? 1.4 : 2.2, 0);
+    const lift = new THREE.Vector3(0, r.key === 'longterm' ? 4.2 : r.kind === 'satellite' ? 1.2 : r.kind === 'process' ? 1.4 : 2.2, 0);
+    if (r.kind === 'satellite') bel.onclick = openPortrait;
     labelEls.push({ el: bel, anchor: () => brain.hub(r.key).add(lift), region: r, view: 'brain' });
   }
   // 太阳：心核 · TA
@@ -233,7 +233,7 @@ function buildLabels() {
   sun.innerHTML = `<span class="zh">心核 · ${esc(personaName())}</span><span class="en">${S.persona ? 'PERSONA CARD' : 'THE SELF'}</span>`;
   sun.onclick = focusSun;
   labelsEl.appendChild(sun);
-  labelEls.push({ el: sun, anchor: new THREE.Vector3(0, 4.2, 0), region: { key: 'sun', kind: 'memory' }, view: 'brain' });
+  labelEls.push({ el: sun, anchor: new THREE.Vector3(0, 6.5, 0), region: { key: 'sun', kind: 'memory' }, view: 'brain' });
 }
 
 const _v = new THREE.Vector3();
@@ -258,7 +258,7 @@ function updateLabels(dist) {
     const sc = clamp((L.view === 'brain' ? 110 : 26) / d, 0.55, 1.5);
     L.el.style.opacity = o.toFixed(3);
     // 脑图里标签整个放在行星上方（底边对齐），并且让鼠标穿过去，这样不会挡住行星
-    const brainLbl = L.view === 'brain' && L.region.key !== 'sun';
+    const brainLbl = L.view === 'brain';   // 脑图里所有标签（包括太阳的）都让鼠标穿过，点击交给画面去判断
     L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, ${brainLbl ? '-100%' : '-50%'}) scale(${sc.toFixed(3)})`;
     L.el.style.transformOrigin = brainLbl ? '50% 100%' : '50% 50%';
     L.el.style.pointerEvents = o > 0.3 && !brainLbl ? 'auto' : 'none';
@@ -270,10 +270,12 @@ function renderLegend() {
   const el = $('#legend');
   const mem = S.regions.filter(r => r.kind === 'memory'), proc = S.regions.filter(r => r.kind === 'process');
   el.innerHTML = `<div class="head">${esc(personaName())} 的回忆</div>` +
+    `<button class="moon" data-moon="1" style="--c:#e6eeff"><span class="dot"></span><span>我眼中的你</span><span class="n">☾</span></button>` +
     mem.map(r => `<button data-k="${r.key}" style="--c:${r.color}" class="${reel.on && reel.region === r.key ? 'on' : ''}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n">${r.count}</span></button>`).join('') +
     `<div class="sep"></div>` +
     proc.map(r => `<button class="proc" data-p="${r.key}" style="--c:${r.color}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n"></span></button>`).join('');
   el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => openRegion(b.dataset.k));
+  el.querySelector('[data-moon]').onclick = openPortrait;
   el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
     if (S.view === 'brain') { const h = brain.hub(b.dataset.p); flyTo(h.clone().add(new THREE.Vector3(4, 16, 18)), h, 1.8); }
     else flyTo(ORGAN_POS[b.dataset.p].clone().add(new THREE.Vector3(6, 3, 8)), ORGAN_POS[b.dataset.p], 2.2);
@@ -634,7 +636,9 @@ function renderPersona() {
     const t = T.find(x => x.key === h.trait);
     return `<li><b>${t?.name || h.trait}</b><span class="${h.delta > 0 ? 'up' : 'down'}">${h.delta > 0 ? '+' : ''}${h.delta}</span> ${esc(h.reason)}</li>`;
   }).join('');
-  el.innerHTML = `<div class="card-head" id="pc-head"><div class="av">${P.avatar ? `<img src="${P.avatar}" alt="">` : ''}</div>
+  // 没有头像时：用名字的第一个字当头像；点一下可以上传
+  const initial = esc([...personaName()][0] || 'T');
+  el.innerHTML = `<div class="card-head" id="pc-head"><div class="av ${P.avatar ? '' : 'empty'}" id="pc-av" title="${P.avatar ? '头像' : '点击设置头像'}">${P.avatar ? `<img src="${P.avatar}" alt="">` : `<span>${initial}</span>`}</div>
       <div><div class="nm">${esc(personaName())}</div><div class="tt">${esc(P.title || '人设卡 · 心核')}</div></div></div>
     ${P.description ? `<div class="desc">${esc(P.description)}</div>` : ''}
     <svg viewBox="0 0 300 220">${rings}${axes}
@@ -644,7 +648,7 @@ function renderPersona() {
     </svg><ul>${hist}</ul>
     <div class="pbtns"><button id="pc-edit">编辑人设卡</button><label class="chip" style="padding:4px 11px;font-size:11.5px;cursor:pointer">导入角色卡<input type="file" id="pc-import" accept=".png,.json,image/png,application/json" hidden></label></div>`;
   $('#pc-edit').onclick = () => openPersonaEditor();
-  $('#pc-head').onclick = focusSun;
+  $('#pc-head').onclick = e => { if (e.target.closest('#pc-av') && !P.avatar) { e.stopPropagation(); openPersonaEditor(); } else focusSun(); };
   $('#pc-import').onchange = e => e.target.files[0] && importCard(e.target.files[0]);
 }
 function focusSun() {
@@ -655,6 +659,37 @@ function focusSun() {
   const el = $('#persona'); el.classList.add('focus'); setTimeout(() => el.classList.remove('focus'), 2600);
   corePulse = 1;
 }
+
+// ------------------------------------------------------------------ 我眼中的你（绕着心核转的小卫星）
+const ptModal = $('#portraitmodal');
+function openPortrait() {
+  const P = S.portrait;
+  $('#pt-title').textContent = `${personaName()}眼中的你`;
+  $('#pt-sub').textContent = `绕着心核转的小卫星。这不是封存的记忆，而是${personaName()}此刻对你的理解，会随着相处慢慢改写；你也可以自己改。`;
+  if (S.sealed) { $('#pt-body').innerHTML = '<p class="sub">钥匙不在，看不到。</p>'; $('#pt-edit').style.display = 'none'; ptModal.classList.add('show'); return; }
+  $('#pt-edit').style.display = '';
+  const who = b => b === 'user' ? '你' : b === 'admin' ? '你' : personaName();
+  $('#pt-body').innerHTML = P
+    ? `${P.name ? `<div class="pt-name">称呼 · ${esc(P.name)}</div>` : ''}<div class="pt-text">${esc(P.content)}</div>
+       <div class="pt-meta">${fmtDate(P.at)} · ${esc(who(P.by))}写的${P.reason ? ` · ${esc(P.reason)}` : ''}</div>
+       ${(P.history || []).length ? `<details><summary>以前的看法（${P.history.length}）</summary>${P.history.map(h => `<div class="pt-old"><div class="pt-meta">${fmtDate(h.at)} · ${esc(who(h.by))}写的${h.reason ? ` · ${esc(h.reason)}` : ''}</div>${esc(h.content)}</div>`).join('')}</details>` : ''}`
+    : `<p class="sub">${esc(personaName())}还没有写下对你的看法。聊得多了，${pronoun()}会慢慢写下来；你也可以先帮${pronoun()}起个头。</p>`;
+  $('#pt-text').style.display = 'none'; $('#pt-name').style.display = 'none'; $('#pt-save').style.display = 'none'; $('#pt-err').textContent = '';
+  ptModal.classList.add('show');
+}
+$('#pt-close').onclick = () => ptModal.classList.remove('show');
+$('#pt-edit').onclick = () => {
+  if (!S.key.unlocked) { ptModal.classList.remove('show'); openKey(); return; }
+  $('#pt-text').value = S.portrait?.content || ''; $('#pt-name').value = S.portrait?.name || '';
+  for (const id of ['#pt-text', '#pt-name', '#pt-save']) $(id).style.display = '';
+  $('#pt-text').focus();
+};
+$('#pt-save').onclick = async () => {
+  try {
+    await api('api/portrait', { method: 'POST', body: { content: $('#pt-text').value, name: $('#pt-name').value } });
+    await loadBrain(); openPortrait(); toast('<b>我眼中的你</b>已经按你写的改好了', '#e6eeff');
+  } catch (e) { $('#pt-err').textContent = e.message; }
+};
 
 // 编辑 / 导入人设卡
 const pModal = $('#personamodal');
@@ -762,8 +797,10 @@ renderer.domElement.addEventListener('pointerdown', e => { mouse.down = { x: e.c
 renderer.domElement.addEventListener('pointerup', e => {
   const d = mouse.down; mouse.down = null;
   if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || S.mode === 'intro') return;
+  mouse.x = e.clientX; mouse.y = e.clientY; pick();   // 按下去的这一刻重新看一眼鼠标下面是什么（行星一直在动）
   if (S.view === 'brain' && !S.hover) {
     if (S.hoverPlanet === 'sun') focusSun();
+    else if (S.hoverPlanet === 'portrait') openPortrait();
     else if (S.hoverPlanet) followPlanet(S.hoverPlanet);
     else if (S.follow) unfollow();
     return;
@@ -804,6 +841,7 @@ function pick() {
     const n = S.memories.filter(m => m.region === k).length;
     tip.style.setProperty('--c', k === 'sun' ? '#cfe0ff' : r.color);
     tip.innerHTML = k === 'sun' ? `<b>心核 · ${esc(personaName())}</b><br>点一下，看${pronoun()}的人设卡`
+      : k === 'portrait' ? `<b>我眼中的你</b><br>${esc(personaName())}对你的理解，随时会更新。点一下看看`
       : `<b>${esc(r.name)}</b> · ${r.kind === 'process' ? '大脑器官' : `${n} 段记忆`}<br>${n ? '点一下，跟着它公转，放映里面的记忆' : esc(r.desc)}`;
     tip.style.left = mouse.x + 'px'; tip.style.top = mouse.y + 'px';
     tip.classList.add('show'); renderer.domElement.style.cursor = 'pointer';
@@ -1233,7 +1271,7 @@ function tick() {
 }
 
 // 调试：地址里带 ?debug 时，把内部状态挂到 window 上（自动化测试用）
-if (new URLSearchParams(location.search).has('debug')) window.__fmn = { S, brain, camera, project, mouse, core, dust, stars, sky, galaxy, scene, bloom, limiter };
+if (new URLSearchParams(location.search).has('debug')) window.__fmn = { S, brain, camera, project, mouse, core, dust, stars, sky, galaxy, scene, bloom, limiter, flying: () => !!flight };
 
 // ------------------------------------------------------------------ 启动
 (async function boot() {

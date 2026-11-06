@@ -156,3 +156,18 @@ test('免疫系统·禁忌：过敏这类事永远不会遗忘，并且每次都
   assert.equal(wake.always_remember.length, 2)
   assert.ok(wake.always_remember.some(c => c.includes('花生')))
 })
+
+test('我眼中的你：AI 随时可以改写，旧版本留在历史里；读需要钥匙', async () => {
+  const { brain } = fresh()
+  const r1 = await callTool(brain, 'portrait_update', { content: '阿遥是个很要强的人，难过时不爱说。', name: '阿遥', reason: '第一次' })
+  assert.equal(r1.ok, true); assert.ok(r1.tell_user_now, '第一次写也会生成钥匙')
+  await callTool(brain, 'portrait_update', { content: '阿遥要强，但最近愿意说出难过了；她喜欢被认真听。', reason: '她开始信任我了' })
+  const p = brain.portrait(5)
+  assert.match(p.content, /愿意说出难过/); assert.equal(p.name, '阿遥', '没写称呼时沿用上一版')
+  assert.equal(p.history.length, 1); assert.match(p.history[0].content, /不爱说/)
+  assert.ok(!fs.readFileSync(path.join(brain.home, 'portrait.json'), 'utf8').includes('阿遥'))
+  assert.match((await callTool(brain, 'memory_wake', {})).portrait, /被认真听/)
+  fs.renameSync(brain.keyStatus().key_path, brain.keyStatus().key_path + '.x')
+  assert.equal(brain.portrait(), null)
+  assert.equal((await callTool(brain, 'portrait_update', { content: '钥匙不在也能写' })).ok, true)
+})

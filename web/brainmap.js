@@ -6,15 +6,17 @@ import * as THREE from 'three';
 import { makeCore, makeStars } from './ring.js';
 
 // 公转顺序（由内到外）和起始相位
-const ORDER = ['input', 'hippocampus', 'retrieval', 'metabolism', 'immune', 'working', 'limbic', 'expression', 'social', 'life', 'introspect', 'visual', 'auditory', 'longterm'];
+const ORDER = ['portrait', 'input', 'hippocampus', 'retrieval', 'metabolism', 'immune', 'working', 'limbic', 'expression', 'social', 'life', 'introspect', 'visual', 'auditory', 'longterm'];
 const PHASE = Object.fromEntries(ORDER.map((k, i) => [k, (i * 2.399963) % (Math.PI * 2)]));   // 黄金角错开
 const PROCESS = new Set(['input', 'hippocampus', 'retrieval', 'metabolism']);
+const MOON = 'portrait';   // 绕着心核转的小卫星：我眼中的你
 const FLOWS = [
   ['input', 'hippocampus'], ['hippocampus', 'longterm'], ['hippocampus', 'limbic'], ['hippocampus', 'social'],
   ['hippocampus', 'life'], ['hippocampus', 'working'], ['hippocampus', 'expression'], ['hippocampus', 'introspect'],
   ['hippocampus', 'visual'], ['hippocampus', 'auditory'], ['retrieval', 'longterm'], ['retrieval', 'limbic'],
   ['retrieval', 'social'], ['retrieval', 'expression'], ['retrieval', 'introspect'], ['metabolism', 'longterm'],
   ['metabolism', 'working'], ['metabolism', 'life'], ['hippocampus', 'immune'], ['retrieval', 'immune'],
+  ['sun', 'portrait'],
 ];
 const SPEED = 0.55;    // 整体公转速度
 
@@ -52,6 +54,7 @@ export function createBrainMap(scene) {
     return out.set(r * Math.cos(th), 0, r * Math.sin(th));
   };
   const hubs = Object.fromEntries(ORDER.map(k => [k, new THREE.Vector3()]));
+  hubs.sun = new THREE.Vector3();   // 心核在原点不动
   const hub = k => (hubs[k] || new THREE.Vector3()).clone();
   let outer = 60;
 
@@ -143,7 +146,7 @@ export function createBrainMap(scene) {
     // 每个模块的「半径」：卫星群有多大
     const counts = {};
     for (const m of memories) counts[m.region] = (counts[m.region] || 0) + 1;
-    for (const k of ORDER) extentOf[k] = PROCESS.has(k) ? 1.3 : k === 'longterm' ? 4.2 : 1.3 + Math.sqrt(counts[k] || 0) * 0.24;
+    for (const k of ORDER) extentOf[k] = k === MOON ? 0.9 : PROCESS.has(k) ? 1.3 : k === 'longterm' ? 4.2 : 1.3 + Math.sqrt(counts[k] || 0) * 0.24;
     // 由内到外排轨道：相邻两条的间距刚好保证不遮挡
     let r = (SUN_R + extentOf[ORDER[0]] + GAP) / SIN;
     ORDER.forEach((k, i) => {
@@ -156,13 +159,13 @@ export function createBrainMap(scene) {
       const pts = [];
       for (let i = 0; i <= 200; i++) { const a = (i / 200) * Math.PI * 2; pts.push(new THREE.Vector3(radius[k] * Math.cos(a), 0, radius[k] * Math.sin(a))); }
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({
-        color: col(k), transparent: true, opacity: PROCESS.has(k) ? 0.022 : 0.035, depthWrite: false, blending: THREE.AdditiveBlending }));
+        color: col(k), transparent: true, opacity: k === MOON ? 0.05 : PROCESS.has(k) ? 0.022 : 0.035, depthWrite: false, blending: THREE.AdditiveBlending }));
       line.userData.base = line.material.opacity; orbitByKey[k] = line; orbitLines.add(line);
     }
     planets.clear();
     for (const k of ORDER) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlow(), color: col(k), transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending }));
-      s.scale.setScalar(k === 'longterm' ? 7 : PROCESS.has(k) ? 3.4 : 4.6); planets.add(s); planetSprites[k] = s;
+      s.scale.setScalar(k === 'longterm' ? 7 : k === MOON ? 2.6 : PROCESS.has(k) ? 3.4 : 4.6); planets.add(s); planetSprites[k] = s;
     }
     const groups = {};
     for (const m of memories) (groups[m.region] ||= []).push(m);
@@ -188,7 +191,7 @@ export function createBrainMap(scene) {
     placeAll();
     buildFibers(spokes, memories.filter((m, i) => m.local && (m.region !== 'longterm' || i % 2 === 0))
       .map(m => [() => hubs[m.region], () => m.bpos, col(m.region), col(m.region).multiplyScalar(0.4), 0, 1]), 1);
-    buildFibers(flows, FLOWS.map(([a, b]) => [() => hubs[a], () => hubs[b], col(a), col(b), 0.14, 1]), 28);
+    buildFibers(flows, FLOWS.map(([a, b]) => [() => hubs[a], () => hubs[b], a === 'sun' ? new THREE.Color('#cfe0ff') : col(a), col(b), a === 'sun' ? 0 : 0.14, 1]), 28);
     const byId = new Map(memories.map(m => [m.id, m]));
     const tint = m => col(m.region).lerp(new THREE.Color(1, 1, 1), 0.35);
     buildFibers(assoc, (links || []).map(([a, b, w]) => [byId.get(a), byId.get(b), w])
