@@ -1,26 +1,14 @@
 // 脑图（星河内部）：像太阳系一样。
-//   中间的「心核 · TA」是太阳；四个过程器官是内行星；九个记忆脑区是外行星，沿着各自倾斜的椭圆轨道公转
-//   （越靠外转得越慢，近似开普勒定律）。每段记忆是绕着自己脑区转的卫星；长期记忆库像土星，记忆排成一圈光环。
+//   中间的「心核 · TA」是太阳，也是 TA 的人设卡；四个过程器官是内行星；九个记忆脑区是外行星，沿着同一平面上的同心圆轨道公转
+//   （越靠外转得越慢，近似开普勒定律；轨道间距经过计算，保证任何时候都不会互相遮挡）。每段记忆是绕着自己脑区转的卫星；长期记忆库像土星，记忆排成一圈光环。
 //   线是「神经纤维」：两端亮、中间淡，光脉冲沿着它流动，跟着行星一起移动。
 import * as THREE from 'three';
 import { glowTexture, makeCore, makeStars } from './ring.js';
 
-// [半长轴, 轨道倾角, 起始相位, 偏心率, 星球大小]
-const ORBITS = {
-  input:       [9, 0.30, 0.3, 0.06, 0.8],
-  hippocampus: [12.5, -0.18, 2.2, 0.05, 1.0],
-  retrieval:   [16, 0.24, 4.1, 0.05, 1.0],
-  metabolism:  [19.5, -0.26, 5.3, 0.06, 0.9],
-  working:     [25, 0.10, 0.6, 0.08, 1.0],
-  limbic:      [30, -0.07, 2.7, 0.06, 1.2],
-  expression:  [35, 0.12, 4.5, 0.07, 1.0],
-  social:      [40, -0.05, 1.3, 0.05, 1.3],
-  life:        [45, 0.08, 3.4, 0.06, 1.3],
-  introspect:  [50, -0.10, 5.7, 0.05, 1.0],
-  visual:      [55, 0.06, 1.0, 0.06, 1.0],
-  auditory:    [60, -0.08, 3.0, 0.05, 1.0],
-  longterm:    [67, 0.05, 5.0, 0.04, 1.8],
-};
+// 公转顺序（由内到外）和起始相位
+const ORDER = ['input', 'hippocampus', 'retrieval', 'metabolism', 'working', 'limbic', 'expression', 'social', 'life', 'introspect', 'visual', 'auditory', 'longterm'];
+const PHASE = Object.fromEntries(ORDER.map((k, i) => [k, (i * 2.399963) % (Math.PI * 2)]));   // 黄金角错开
+const PROCESS = new Set(['input', 'hippocampus', 'retrieval', 'metabolism']);
 const FLOWS = [
   ['input', 'hippocampus'], ['hippocampus', 'longterm'], ['hippocampus', 'limbic'], ['hippocampus', 'social'],
   ['hippocampus', 'life'], ['hippocampus', 'working'], ['hippocampus', 'expression'], ['hippocampus', 'introspect'],
@@ -28,27 +16,32 @@ const FLOWS = [
   ['retrieval', 'social'], ['retrieval', 'expression'], ['retrieval', 'introspect'], ['metabolism', 'longterm'],
   ['metabolism', 'working'], ['metabolism', 'life'],
 ];
-const SPEED = 0.55;   // 整体公转速度
+const SPEED = 0.55;    // 整体公转速度
+
+// ---- 不遮挡的几何保证 ----
+// 所有轨道在同一平面上、是同心圆。从仰角 ≥ MIN_ELEV 的方向看下去，两条半径差 Δr 的圆投影成两个同心椭圆，
+// 它们在屏幕上最近的地方（短轴方向）也相距 Δr·sin(仰角)。所以只要
+//     Δr · sin(MIN_ELEV) ≥ 内侧模块半径 + 外侧模块半径 + 留白，
+// 无论两颗行星各自转到哪里，它们在屏幕上都不会重叠；太阳和第一颗行星之间同理。镜头的仰角被限制在 MIN_ELEV 以上。
+export const MIN_ELEV = 35 * Math.PI / 180;
+const SUN_R = 5.2, GAP = 1.4;
+const SIN = Math.sin(MIN_ELEV);
 
 const hashf = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return ((h >>> 0) % 100000) / 100000; };
-const omega = a => SPEED * 0.3 * Math.pow(a / 9, -1.5);
-
-/** 某个脑区在 t 时刻的位置（倾斜的椭圆轨道，太阳在一个焦点上）。 */
-function orbitPos(key, t, out = new THREE.Vector3()) {
-  const o = ORBITS[key]; if (!o) return out.set(0, 0, 0);
-  const [a, inc, ph, e] = o, b = a * Math.sqrt(1 - e * e);
-  const th = ph + t * omega(a);
-  const x = a * Math.cos(th) - a * e, z = b * Math.sin(th);
-  const node = ph * 0.7;   // 每条轨道的升交点不一样
-  const y = z * Math.sin(inc), zz = z * Math.cos(inc);
-  return out.set(x * Math.cos(node) - zz * Math.sin(node), y, x * Math.sin(node) + zz * Math.cos(node));
-}
 
 export function createBrainMap(scene) {
   const group = new THREE.Group(); group.visible = false; scene.add(group);
   let clock = 0;
-  const hubs = Object.fromEntries(Object.keys(ORBITS).map(k => [k, orbitPos(k, 0)]));
+  const radius = {}, extentOf = {};
+  const omega = r => SPEED * 0.3 * Math.pow(r / 15, -1.5);   // 越靠外转得越慢（开普勒）
+  const orbitPos = (k, t, out = new THREE.Vector3()) => {
+    const r = radius[k]; if (r == null) return out.set(0, 0, 0);
+    const th = PHASE[k] + t * omega(r);
+    return out.set(r * Math.cos(th), 0, r * Math.sin(th));
+  };
+  const hubs = Object.fromEntries(ORDER.map(k => [k, new THREE.Vector3()]));
   const hub = k => (hubs[k] || new THREE.Vector3()).clone();
+  let outer = 60;
 
   // ---- 太阳：心核 · TA
   const sun = makeCore();
@@ -127,7 +120,7 @@ export function createBrainMap(scene) {
   let mems = [];
   const Y = new THREE.Vector3(0, 1, 0), ZERO = new THREE.Vector3();
   function placeAll() {
-    for (const k of Object.keys(ORBITS)) orbitPos(k, clock, hubs[k]);
+    for (const k of ORDER) orbitPos(k, clock, hubs[k]);
     for (const m of mems) if (m.local) m.bpos.copy(m.local).applyAxisAngle(Y, clock * m.spin).add(hubs[m.region] || ZERO);
   }
 
@@ -135,17 +128,28 @@ export function createBrainMap(scene) {
   function layout(regions, memories, links) {
     mems = memories;
     const col = k => new THREE.Color(regions[k]?.color || '#fff');
+    // 每个模块的「半径」：卫星群有多大
+    const counts = {};
+    for (const m of memories) counts[m.region] = (counts[m.region] || 0) + 1;
+    for (const k of ORDER) extentOf[k] = PROCESS.has(k) ? 1.3 : k === 'longterm' ? 4.2 : 1.3 + Math.sqrt(counts[k] || 0) * 0.24;
+    // 由内到外排轨道：相邻两条的间距刚好保证不遮挡
+    let r = (SUN_R + extentOf[ORDER[0]] + GAP) / SIN;
+    ORDER.forEach((k, i) => {
+      if (i) r += (extentOf[ORDER[i - 1]] + extentOf[k] + GAP) / SIN;
+      radius[k] = r;
+    });
+    outer = r + extentOf.longterm;
     orbitLines.clear();
-    for (const k of Object.keys(ORBITS)) {
-      const T = Math.PI * 2 / omega(ORBITS[k][0]), pts = [];
-      for (let i = 0; i <= 160; i++) pts.push(orbitPos(k, (i / 160) * T));
+    for (const k of ORDER) {
+      const pts = [];
+      for (let i = 0; i <= 200; i++) { const a = (i / 200) * Math.PI * 2; pts.push(new THREE.Vector3(radius[k] * Math.cos(a), 0, radius[k] * Math.sin(a))); }
       orbitLines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({
-        color: col(k), transparent: true, opacity: regions[k]?.kind === 'process' ? 0.1 : 0.16, depthWrite: false, blending: THREE.AdditiveBlending })));
+        color: col(k), transparent: true, opacity: PROCESS.has(k) ? 0.022 : 0.035, depthWrite: false, blending: THREE.AdditiveBlending })));
     }
     planets.clear();
-    for (const k of Object.keys(ORBITS)) {
+    for (const k of ORDER) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: col(k), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
-      s.scale.setScalar(2.4 * ORBITS[k][4]); planets.add(s); planetSprites[k] = s;
+      s.scale.setScalar(k === 'longterm' ? 4.4 : PROCESS.has(k) ? 2.2 : 2.8); planets.add(s); planetSprites[k] = s;
     }
     const groups = {};
     for (const m of memories) (groups[m.region] ||= []).push(m);
@@ -155,11 +159,11 @@ export function createBrainMap(scene) {
       list.forEach((m, i) => {
         if (rk === 'longterm') {
           // 长期记忆库像土星：记忆排成一圈倾斜的光环
-          const a = (i / n) * Math.PI * 2, r = 3.2 + (i % 3) * 0.55 + hashf(m.id) * 0.3;
+          const a = (i / n) * Math.PI * 2, r = 2.8 + (i % 3) * 0.45 + hashf(m.id) * 0.25;
           m.local = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r).applyAxisAngle(new THREE.Vector3(1, 0, 0), 0.45);
           m.spin = 0.12;
         } else {
-          const R = 1.4 + Math.sqrt(n) * 0.35;
+          const R = extentOf[rk] - 0.25;
           const k = (i + 0.5) / n, phi = Math.acos(1 - 2 * k), th = Math.PI * (1 + Math.sqrt(5)) * i;
           const rr = R * (0.6 + 0.4 * hashf(m.id));
           m.local = new THREE.Vector3(Math.sin(phi) * Math.cos(th) * rr, Math.cos(phi) * rr * 0.6, Math.sin(phi) * Math.sin(th) * rr);
@@ -185,7 +189,7 @@ export function createBrainMap(scene) {
       m.bidx = i;
       const c = col(m.region);
       at.aColor.array.set([c.r, c.g, c.b], i * 3);
-      at.aSize.array[i] = m.status === 'archived' ? 3 : 4.4 + m.importance * 7;
+      at.aSize.array[i] = (m.status === 'archived' ? 3 : 4.4 + m.importance * 7) * 1.6;
       at.aState.array[i] = m.status === 'archived' ? 1 : 0;
       at.aImg.array[i] = m.has_image ? 1 : 0;
       at.aPhase.array[i] = hashf(m.id + 'b'); at.aAppear.array[i] = 1; at.aS.array[i] = 0;
@@ -198,7 +202,7 @@ export function createBrainMap(scene) {
   function update(dt, time, hiOf, running = true) {
     if (running) clock += dt;
     placeAll();
-    for (const [k, s] of Object.entries(planetSprites)) { s.position.copy(hubs[k]); s.material.opacity = 0.65 + 0.2 * Math.sin(time * 1.1 + ORBITS[k][2]); }
+    for (const [k, s] of Object.entries(planetSprites)) { s.position.copy(hubs[k]); s.material.opacity = 0.65 + 0.2 * Math.sin(time * 1.1 + PHASE[k]); }
     const at = stars.geometry.attributes;
     for (const m of mems) if (m.bidx != null && m.bpos) { at.position.array.set([m.bpos.x, m.bpos.y, m.bpos.z], m.bidx * 3); at.aHi.array[m.bidx] = hiOf(m); }
     at.position.needsUpdate = at.aHi.needsUpdate = true;
@@ -207,5 +211,5 @@ export function createBrainMap(scene) {
     sun.set(1 + 0.08 * Math.sin(time * 1.2), time, 1);
   }
 
-  return { group, stars, layout, update, hub };
+  return { group, stars, layout, update, hub, extent: () => outer, sun };
 }

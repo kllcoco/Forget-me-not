@@ -1,6 +1,6 @@
 {
   "name": "dsh-forget-me-not",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "勿忘我：给任何 LLM 用的封存式记忆大脑——艾宾浩斯遗忘、联想召回、可塑性性格、自动总结，附 3D 莫比乌斯记忆星环与脑图。DeepSeek Harness 插件 / MCP / REST",
   "type": "module",
   "main": "lib/index.js",
@@ -27,15 +27,18 @@
     "LICENSE"
   ],
   "keywords": [
-    "dsh-plugin",
-    "deepseek-harness",
-    "deepseek",
-    "memory",
-    "llm",
-    "mcp",
     "agent-memory",
-    "long-term-memory",
+    "claude-code-plugin",
+    "codex-plugin",
+    "deepseek",
+    "deepseek-harness",
+    "dsh-plugin",
     "ebbinghaus",
+    "llm",
+    "long-term-memory",
+    "mcp",
+    "memory",
+    "persona-card",
     "three.js"
   ],
   "license": "MIT",

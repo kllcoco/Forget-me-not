@@ -7,7 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { A, TAU, MAX_REGIONS, frame, makeCore, makeDust, makeFx, makeSky, makeStars, ringPos } from './ring.js';
 import { paint, paintSealed } from './painter.js';
-import { createBrainMap } from './brainmap.js';
+import { createBrainMap, MIN_ELEV } from './brainmap.js';
 import { createMusic } from './music.js';
 import { createGalaxy } from './galaxy.js';
 
@@ -212,7 +212,8 @@ function buildLabels() {
   }
   // 太阳：心核 · TA
   const sun = document.createElement('div'); sun.className = 'rlabel big sun'; sun.style.setProperty('--c', '#cfe0ff');
-  sun.innerHTML = '<span class="zh">心核 · TA</span><span class="en">THE SELF</span>';
+  sun.innerHTML = `<span class="zh">心核 · ${esc(personaName())}</span><span class="en">${S.persona ? 'PERSONA CARD' : 'THE SELF'}</span>`;
+  sun.onclick = focusSun;
   labelsEl.appendChild(sun);
   labelEls.push({ el: sun, anchor: new THREE.Vector3(0, 4.2, 0), region: { key: 'sun', kind: 'memory' }, view: 'brain' });
 }
@@ -232,11 +233,11 @@ function updateLabels(dist) {
     const anc = typeof L.anchor === 'function' ? L.anchor() : L.anchor;
     project(anc, tmp);
     const d = camera.position.distanceTo(anc);
-    let o = L.view === 'brain' ? smooth(2, 8, d) * smooth(170, 90, d) * (L.region.kind === 'process' ? 0.75 : 1)
+    let o = L.view === 'brain' ? smooth(2, 8, d) * smooth(brain.extent() * 4, brain.extent() * 2.4, d) * (L.region.kind === 'process' ? 0.75 : 1)
       : L.region.kind === 'process' ? smooth(30, 12, dist) * 0.85 : base * smooth(1.5, 5, d);
     if (reel.on) o *= L.region.key === reel.region ? 1 : 0.12;
     if (!tmp.vis) o = 0;
-    const sc = clamp((L.view === 'brain' ? 85 : 26) / d, 0.55, 1.5);
+    const sc = clamp((L.view === 'brain' ? 110 : 26) / d, 0.55, 1.5);
     L.el.style.opacity = o.toFixed(3);
     L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, -50%) scale(${sc.toFixed(3)})`;
     L.el.style.pointerEvents = o > 0.3 ? 'auto' : 'none';
@@ -253,7 +254,7 @@ function renderLegend() {
     proc.map(r => `<button class="proc" data-p="${r.key}" style="--c:${r.color}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n"></span></button>`).join('');
   el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => openRegion(b.dataset.k));
   el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
-    if (S.view === 'brain') { const h = brain.hub(b.dataset.p); flyTo(h.clone().add(new THREE.Vector3(4, 6, 20)), h, 1.8); }
+    if (S.view === 'brain') { const h = brain.hub(b.dataset.p); flyTo(h.clone().add(new THREE.Vector3(4, 16, 18)), h, 1.8); }
     else flyTo(ORGAN_POS[b.dataset.p].clone().add(new THREE.Vector3(6, 3, 8)), ORGAN_POS[b.dataset.p], 2.2);
   });
 }
@@ -305,8 +306,9 @@ const posOf = m => (S.view === 'brain' ? m.bpos : m.pos) || m.pos;
 const tgtOf = m => (S.view === 'brain' ? m.bpos : m.target) || m.target;
 function camFor(m) {
   if (S.view === 'brain') {
-    const dir = camera.position.clone().sub(controls.target); dir.y = Math.max(dir.y, 2); dir.setLength(15);
-    return m.bpos.clone().add(dir);
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const minY = Math.sin(MIN_ELEV + 0.12); if (dir.y < minY) { dir.y = minY; const h = Math.hypot(dir.x, dir.z) || 1, k = Math.sqrt(1 - minY * minY) / h; dir.x *= k; dir.z *= k; }
+    return m.bpos.clone().addScaledVector(dir, 20);
   }
   const { T, N } = frame(m.t);
   const out = N.clone(); if (out.dot(new THREE.Vector3(m.target.x, 0, m.target.z)) < 0) out.negate();
@@ -531,25 +533,33 @@ if (!EMBED) addEventListener('pointerdown', function once() { removeEventListene
 addEventListener('message', e => { if (e.origin === location.origin && e.data?.type === 'fmn:fullscreen-state') document.body.classList.toggle('full', !!e.data.full); });
 
 // ------------------------------------------------------------------ 多级缩放：星环 ⇄ 脑图
-const BRAIN_HOME = NARROW
-  ? { pos: new THREE.Vector3(0, 130, 175), target: new THREE.Vector3(0, -2, 0) }
-  : { pos: new THREE.Vector3(-4, 62, 118), target: new THREE.Vector3(8, -6, 0) };
+// 脑图的默认镜头：根据太阳系有多大来定，仰角 40°（大于不遮挡所需的最小仰角）
+const BRAIN_HOME = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+function fitBrainHome() {
+  const R = brain.extent(), d = R * (NARROW ? 3.3 : 1.95), el = 40 * Math.PI / 180;
+  BRAIN_HOME.pos.set(-d * Math.cos(el) * 0.12, d * Math.sin(el), d * Math.cos(el));
+  BRAIN_HOME.target.set(NARROW ? 0 : R * 0.12, -R * 0.06, 0);
+}
 let swapping = false;
 function setView(v) {
   S.view = v;
   for (const o of ringObjs) o.visible = v === 'ring';
   // 莫比乌斯环不丢：在脑图里，它变成环绕整个大脑的一圈星河
   dust.visible = true;
-  dust.scale.setScalar(v === 'brain' ? 6.2 : 1);
   dust.rotation.set(v === 'brain' ? -0.32 : 0, 0, v === 'brain' ? 0.06 : 0);
   dust.position.set(v === 'brain' ? 3 : 0, v === 'brain' ? -2 : 0, 0);
   if (organs) organs.visible = v === 'ring';
   brain.group.visible = v === 'brain';
   document.body.classList.toggle('brain', v === 'brain');
   $('#brainbtn').classList.toggle('on', v === 'brain');
-  $('#title').innerHTML = v === 'brain' ? 'TA的回忆<small>· 脑图</small>' : '勿忘我<small>Forget-me-not</small>';
-  $('#poem').textContent = v === 'brain' ? '像太阳系一样：每个脑区是一颗绕着「心核 · TA」公转的行星，记忆是它的卫星' : '把她留在时间里的痕迹，延长得再久一些';
-  controls.maxDistance = v === 'brain' ? 230 : 110;
+  renderTitle();
+  fitBrainHome();
+  controls.maxDistance = v === 'brain' ? brain.extent() * 4 : 110;
+  // 脑图里镜头不能压得太低：仰角至少 MIN_ELEV，这样行星永远不会互相遮挡
+  controls.minPolarAngle = v === 'brain' ? 0.05 : 0;
+  controls.maxPolarAngle = v === 'brain' ? Math.PI / 2 - MIN_ELEV - 0.02 : Math.PI;
+  const R = brain.extent();
+  dust.scale.setScalar(v === 'brain' ? R * 1.18 / 13 : 1);
   renderLegend();
 }
 function flash(peakAt, fn) {
@@ -569,7 +579,7 @@ function enterBrain() {
 function exitBrain() {
   if (swapping || S.view !== 'brain') return; swapping = true;
   if (reel.on) exitReel();
-  flyTo(new THREE.Vector3(0, 30, 240), BRAIN_HOME.target, 0.9, { warp: true });
+  flyTo(BRAIN_HOME.pos.clone().multiplyScalar(1.9), BRAIN_HOME.target, 0.9, { warp: true });
   flash(520, () => {
     flight = null; setView('ring');
     camera.position.set(0.5, 0.5, 2.6); controls.target.set(0, 0, 0); camera.lookAt(0, 0, 0);
@@ -577,10 +587,18 @@ function exitBrain() {
   });
 }
 
-// ------------------------------------------------------------------ 性格养成面板（脑图里）
+// ------------------------------------------------------------------ 人设卡（太阳 · 心核）+ 性格养成
+const personaName = () => (S.persona?.profile?.name || 'TA').trim() || 'TA';
+function renderTitle() {
+  const v = S.view, n = esc(personaName());
+  $('#title').innerHTML = v === 'brain' ? `${n}的回忆<small>· 脑图</small>` : '勿忘我<small>Forget-me-not</small>';
+  $('#poem').textContent = v === 'brain' ? `像太阳系一样：每个脑区是一颗绕着「心核 · ${personaName()}」公转的行星，记忆是它的卫星` : '把她留在时间里的痕迹，延长得再久一些';
+}
 function renderPersona() {
   const el = $('#persona');
-  if (!S.persona) { el.innerHTML = `<h5>TA 的性格</h5><div class="sub">可塑 · 养成中</div><div class="locked">${S.key.initialized ? '钥匙不在，性格也被锁着。' : '还没有任何经历。'}</div>`; return; }
+  renderTitle();
+  if (!S.persona) { el.innerHTML = `<h5>人设卡</h5><div class="sub">心核 · 性格养成中</div><div class="locked">${S.key.initialized ? '钥匙不在，人设卡也被锁着。' : '还没有任何经历。'}</div>`; return; }
+  const P = S.persona.profile || {};
   const T = S.persona.traits, n = T.length, cx = 150, cy = 108, R0 = 78;
   const pt = (i, v) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return [cx + Math.cos(a) * R0 * v, cy + Math.sin(a) * R0 * v]; };
   const poly = vals => vals.map((v, i) => pt(i, v).map(x => x.toFixed(1)).join(',')).join(' ');
@@ -590,13 +608,99 @@ function renderPersona() {
     const t = T.find(x => x.key === h.trait);
     return `<li><b>${t?.name || h.trait}</b><span class="${h.delta > 0 ? 'up' : 'down'}">${h.delta > 0 ? '+' : ''}${h.delta}</span> ${esc(h.reason)}</li>`;
   }).join('');
-  el.innerHTML = `<h5>TA 的性格</h5><div class="sub">可塑 · 被经历慢慢塑造</div>
+  el.innerHTML = `<div class="card-head" id="pc-head"><div class="av">${P.avatar ? `<img src="${P.avatar}" alt="">` : ''}</div>
+      <div><div class="nm">${esc(personaName())}</div><div class="tt">${esc(P.title || '人设卡 · 心核')}</div></div></div>
+    ${P.description ? `<div class="desc">${esc(P.description)}</div>` : ''}
     <svg viewBox="0 0 300 220">${rings}${axes}
       <polygon points="${poly(T.map(t => t.baseline))}" fill="none" stroke="rgba(200,214,255,.35)" stroke-dasharray="3 3"/>
       <polygon points="${poly(T.map(t => t.value))}" fill="rgba(201,167,255,.18)" stroke="#c9a7ff" stroke-width="1.4" style="filter:drop-shadow(0 0 6px #c9a7ff)"/>
       ${T.map((t, i) => { const [x, y] = pt(i, t.value); return `<circle cx="${x}" cy="${y}" r="2.4" fill="#fff"/>`; }).join('')}
-    </svg><ul>${hist}</ul>`;
+    </svg><ul>${hist}</ul>
+    <div class="pbtns"><button id="pc-edit">编辑人设卡</button><label class="chip" style="padding:4px 11px;font-size:11.5px;cursor:pointer">导入角色卡<input type="file" id="pc-import" accept=".png,.json,image/png,application/json" hidden></label></div>`;
+  $('#pc-edit').onclick = () => openPersonaEditor();
+  $('#pc-head').onclick = focusSun;
+  $('#pc-import').onchange = e => e.target.files[0] && importCard(e.target.files[0]);
 }
+function focusSun() {
+  if (S.view !== 'brain') return;
+  if (reel.on) exitReel();
+  const d = brain.extent() * 0.55;
+  flyTo(new THREE.Vector3(0, d * Math.sin(0.9), d * Math.cos(0.9)), new THREE.Vector3(), 1.8, { warp: false });
+  const el = $('#persona'); el.classList.add('focus'); setTimeout(() => el.classList.remove('focus'), 2600);
+  corePulse = 1;
+}
+
+// 编辑 / 导入人设卡
+const pModal = $('#personamodal');
+const PF = ['name', 'title', 'description', 'personality', 'speaking_style', 'scenario', 'first_mes'];
+let pfAvatar = null;
+function openPersonaEditor(prefill) {
+  if (!S.key.unlocked) { openKey(); return; }
+  const P = { ...(S.persona?.profile || {}), ...(prefill || {}) };
+  for (const k of PF) $('#pf-' + k).value = P[k] || '';
+  pfAvatar = P.avatar || null; $('#pf-avatar-img').src = pfAvatar || '';
+  $('#pf-err').textContent = prefill ? `已从角色卡读入「${P.name || ''}」，确认后保存` : '';
+  pModal.classList.add('show');
+}
+$('#pf-cancel').onclick = () => pModal.classList.remove('show');
+$('#pf-avatar-box').onclick = e => { if (e.target.id !== 'pf-avatar') $('#pf-avatar').click(); };
+$('#pf-avatar').onchange = async e => { const f = e.target.files[0]; if (f) { pfAvatar = await shrinkImage(f); $('#pf-avatar-img').src = pfAvatar; } };
+$('#pf-import').onchange = e => e.target.files[0] && importCard(e.target.files[0]);
+$('#pf-ok').onclick = async () => {
+  const profile = Object.fromEntries(PF.map(k => [k, $('#pf-' + k).value]));
+  profile.avatar = pfAvatar;
+  try { await api('api/persona', { method: 'POST', body: { profile } }); pModal.classList.remove('show'); await loadBrain(); corePulse = 1.2; toast(`<b>人设卡</b>${esc(personaName())} 的人设卡已保存`, '#cfe0ff'); }
+  catch (e) { $('#pf-err').textContent = e.status === 423 ? '钥匙不在，不能修改人设卡' : e.message; }
+};
+/** 头像缩到 256px，存进加密的人设卡里。 */
+function shrinkImage(blob, size = 256) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(); img.onload = () => {
+      const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d');
+      const k = Math.max(size / img.width, size / img.height), w = img.width * k, h = img.height * k;
+      g.drawImage(img, (size - w) / 2, (size - h) / 2.6, w, h); URL.revokeObjectURL(img.src); resolve(c.toDataURL('image/jpeg', 0.88));
+    }; img.onerror = reject; img.src = URL.createObjectURL(blob);
+  });
+}
+/** 读酒馆（SillyTavern / Character Card V1 V2 V3）角色卡：.json，或把 JSON 藏在 PNG 的 tEXt「chara / ccv3」里。 */
+async function importCard(file) {
+  try {
+    let json, avatar = null;
+    if (/\.json$/i.test(file.name) || file.type === 'application/json') json = JSON.parse(await file.text());
+    else {
+      const buf = new Uint8Array(await file.arrayBuffer()), dv = new DataView(buf.buffer);
+      let off = 8, found = {};
+      while (off + 8 < buf.length) {
+        const len = dv.getUint32(off), type = String.fromCharCode(...buf.slice(off + 4, off + 8));
+        if (type === 'tEXt' || type === 'iTXt') {
+          const data = buf.slice(off + 8, off + 8 + len), z = data.indexOf(0), key = new TextDecoder('latin1').decode(data.slice(0, z));
+          if (key === 'chara' || key === 'ccv3') {
+            let raw = data.slice(z + 1); if (type === 'iTXt') { let n = 0, i = 0; while (n < 3 && i < raw.length) { if (raw[i] === 0) n++; i++; } raw = raw.slice(i + 1); }
+            const b64 = new TextDecoder('latin1').decode(raw).trim();
+            found[key] = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))));
+          }
+        }
+        if (type === 'IEND') break;
+        off += 12 + len;
+      }
+      json = found.ccv3 || found.chara;
+      if (!json) throw new Error('这张图片里没有角色卡数据');
+      avatar = await shrinkImage(file);
+    }
+    const d = json.data || json;
+    const firstLine = s => String(s || '').split('\n').map(x => x.trim()).find(Boolean) || '';
+    openPersonaEditor({
+      name: d.name || d.char_name || '', title: firstLine(d.creator_notes).slice(0, 60) || (d.tags || []).slice(0, 3).join(' · '),
+      description: d.description || d.char_persona || '', personality: d.personality || '', scenario: d.scenario || d.world_scenario || '',
+      speaking_style: d.mes_example || d.example_dialogue || '', first_mes: d.first_mes || d.char_greeting || '', avatar: avatar || undefined,
+    });
+  } catch (e) { toast(`<b>人设卡</b>读不出这张角色卡：${esc(e.message)}`, '#ff8fa6'); }
+}
+// 把角色卡拖进页面
+addEventListener('drop', e => {
+  const f = [...(e.dataTransfer?.files || [])].find(x => /\.(json|png)$/i.test(x.name));
+  if (!f) return; e.preventDefault(); importCard(f);
+});
 
 function openRegion(key) {
   if (S.mode === 'intro') return;
@@ -612,6 +716,11 @@ renderer.domElement.addEventListener('pointerdown', e => { mouse.down = { x: e.c
 renderer.domElement.addEventListener('pointerup', e => {
   const d = mouse.down; mouse.down = null;
   if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || S.mode === 'intro') return;
+  if (S.view === 'brain' && !S.hover) {
+    const p = project(new THREE.Vector3(), {});
+    if (p.vis && Math.hypot(p.x - e.clientX, p.y - e.clientY) < 40) focusSun();
+    return;
+  }
   if (!S.hover) return;
   if (S.view === 'brain') startChain(S.hover);
   else startReel(S.hover.region, S.hover.id, { cinematic: !(reel.on && reel.region === S.hover.region) });
@@ -652,7 +761,7 @@ function autoReel(dist) {
   const now = performance.now();
   // 多级缩放：钻进星核 → 脑图；在脑图里拉得很远 → 回到星环
   if (S.view === 'ring' && !reel.on && camera.position.length() < 4.2) { enterBrain(); return; }
-  if (S.view === 'brain') { if (!reel.on && dist > 200) exitBrain(); else if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) { reel.follow = true; reel.t = 0; } return; }
+  if (S.view === 'brain') { if (!reel.on && dist > brain.extent() * 3.6) exitBrain(); else if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) { reel.follow = true; reel.t = 0; } return; }
   if (reel.on && !reel.follow && dist > REEL_DIST * 1.9 && now - S.idleAt > 300) { exitReel(); return; }
   if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) {
     // 停下来不动一会儿 → 从视野中心最近的那颗星继续放映

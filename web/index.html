@@ -6,7 +6,7 @@
 <title>勿忘我 · 记忆星环</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Noto+Serif+SC:wght@300;400;600&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Noto+Serif+SC:wght@300;400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="static/style.css">
 <script type="importmap">
 { "imports": {
@@ -116,6 +116,32 @@
     <div class="row">
       <button class="chip" id="ed-cancel">取消</button>
       <button class="chip on" id="ed-ok">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="personamodal">
+  <div class="panel" style="width:min(600px,94vw)">
+    <h4>人设卡</h4>
+    <p class="sub">TA 是谁。只有超级管理员（钥匙在的时候）可以编辑。也可以导入酒馆（SillyTavern）的角色卡：.png 或 .json，直接拖进页面也行。</p>
+    <div class="pform">
+      <label class="avatar" id="pf-avatar-box" title="点击换头像"><img id="pf-avatar-img" alt=""><input type="file" id="pf-avatar" accept="image/*" hidden></label>
+      <div class="pcol">
+        <input id="pf-name" placeholder="名字" maxlength="40">
+        <input id="pf-title" placeholder="一句话身份，比如：会写诗的仿生人">
+      </div>
+      <textarea id="pf-description" placeholder="人设与外貌"></textarea>
+      <textarea id="pf-personality" placeholder="性格底色"></textarea>
+      <textarea id="pf-speaking_style" placeholder="说话方式 / 说话示例"></textarea>
+      <textarea id="pf-scenario" placeholder="和用户的关系 / 世界观"></textarea>
+      <textarea id="pf-first_mes" placeholder="开场白"></textarea>
+    </div>
+    <div class="err" id="pf-err"></div>
+    <div class="row">
+      <label class="chip" style="cursor:pointer">导入角色卡<input type="file" id="pf-import" accept=".png,.json,image/png,application/json" hidden></label>
+      <span style="flex:1"></span>
+      <button class="chip" id="pf-cancel">取消</button>
+      <button class="chip on" id="pf-ok">保存</button>
     </div>
   </div>
 </div>

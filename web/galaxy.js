@@ -76,7 +76,7 @@ export function createGalaxy(scene) {
     sp.scale.set(s, s * 0.8, 1); sp.userData.o = o; galaxy.add(sp); return sp;
   });
   // 倾斜着放在脑图后面，像从银河的边上看进去
-  galaxy.position.set(70, -20, -300); galaxy.rotation.set(1.05, 0.2, -0.45);
+  galaxy.position.set(150, -60, -640); galaxy.rotation.set(1.05, 0.2, -0.45); galaxy.scale.setScalar(2);
   group.add(galaxy);
 
   // ---------------------------------------------------------------- 横跨天空的银河带

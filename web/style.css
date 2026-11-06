@@ -11,7 +11,7 @@
   --gold: #f3d9a4;
   --rose: #ff8fa6;
   --serif: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
-  --display: "ZCOOL XiaoWei", "Noto Serif SC", "Songti SC", serif;
+  --display: "Noto Serif SC", "Songti SC", "STSong", serif;  /* 装饰字体会把「回」画成方块，所以标题也用宋体 */
   --latin: "Cormorant Garamond", "Times New Roman", serif;
   --sans: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --ease: cubic-bezier(.22, .8, .2, 1);
@@ -43,7 +43,7 @@ body.reel .ui.hide-in-reel { opacity: 0; transform: translateX(-12px); pointer-e
 /* region labels: 霓虹小字 */
 .rlabel { position: absolute; left: 0; top: 0; white-space: nowrap; text-align: center;
   transform: translate(-50%, -50%); transition: opacity .5s; will-change: transform, opacity; pointer-events: auto; cursor: pointer; }
-.rlabel .zh { font-family: var(--display); font-size: 22px; letter-spacing: .12em; color: var(--c);
+.rlabel .zh { font-family: var(--display); font-weight: 600; font-size: 22px; letter-spacing: .12em; color: var(--c);
   text-shadow: 0 0 6px var(--c), 0 0 22px color-mix(in srgb, var(--c) 60%, transparent), 0 0 44px color-mix(in srgb, var(--c) 30%, transparent); }
 .rlabel .en { display: block; font-family: var(--latin); font-style: italic; font-size: 12px; letter-spacing: .28em;
   color: color-mix(in srgb, var(--c) 70%, white); opacity: .65; margin-top: 2px; text-transform: uppercase; }
@@ -271,6 +271,30 @@ body.brain.reel #persona { opacity: 0; pointer-events: none; }
 #persona li b { font-weight: 400; color: var(--ink-2); margin-right: 4px; }
 #persona li .up { color: #7ee08a; } #persona li .down { color: #ff8fa6; }
 #persona .locked { font-size: 12.5px; color: var(--muted); line-height: 1.8; margin-top: 8px; }
+
+/* 人设卡 */
+#persona .card-head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; cursor: pointer; }
+#persona .av { flex: none; width: 58px; height: 58px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, #cfe0ff 30%, #4f78ff 75%, #1a2350);
+  box-shadow: 0 0 22px rgba(160, 190, 255, .55), 0 0 0 1px rgba(255,255,255,.18) inset; overflow: hidden; }
+#persona .av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#persona .nm { font-family: var(--display); font-weight: 600; font-size: 20px; letter-spacing: .14em; color: #f4f6ff; }
+#persona .tt { font-size: 12px; color: var(--ink-2); letter-spacing: .06em; margin-top: 2px; line-height: 1.6; }
+#persona .desc { font-size: 12px; line-height: 1.8; color: var(--muted); max-height: 5.4em; overflow: hidden; margin: 2px 0 2px; user-select: text; }
+#persona .pbtns { display: flex; gap: 6px; margin-top: 8px; }
+#persona .pbtns button { font-size: 11.5px; letter-spacing: .12em; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); }
+#persona .pbtns button:hover { color: var(--ink); border-color: rgba(200,214,255,.35); }
+#persona.focus { box-shadow: 0 0 0 1px rgba(207,224,255,.4), 0 0 60px rgba(140, 180, 255, .3); }
+.pform { display: grid; grid-template-columns: 1fr; gap: 8px; max-height: 56vh; overflow: auto; padding-right: 4px; }
+.pform .avatar { display: none; }
+.pform > .avatar + .pcol { margin-top: 0; }
+.pform { grid-template-columns: 76px 1fr; }
+.pform .avatar { display: block; grid-row: span 1; width: 76px; height: 76px; border-radius: 50%; overflow: hidden; cursor: pointer; border: 1px solid var(--line);
+  background: radial-gradient(circle at 35% 30%, #fff, #cfe0ff 30%, #4f78ff 75%, #1a2350); }
+.pform .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.pform .avatar img:not([src]), .pform .avatar img[src=""] { display: none; }
+.pform .pcol { display: flex; flex-direction: column; gap: 8px; }
+.pform .pcol input { margin: 0; letter-spacing: .06em; font-size: 14px; }
+.pform textarea { grid-column: 1 / -1; min-height: 64px; font-size: 13px; }
 
 /* 关联记忆 */
 #card .assoc { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); }

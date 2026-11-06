@@ -101,6 +101,11 @@ test('可塑性性格：有上限、会累积', async () => {
   const b = brain.shapePersona([{ trait: 'warmth', delta: 0.05, reason: '超过每日上限' }])
   assert.equal(b.length, 0)
   assert.match(brain.personaText(), /温柔/)
+  // 人设卡
+  brain.setPersonaProfile({ name: '小满', title: '会写诗的仿生人', speaking_style: '温柔，偶尔俏皮', avatar: 'javascript:alert(1)' })
+  const text = brain.personaText()
+  assert.match(text, /【我的人设卡】/); assert.match(text, /名字：小满/); assert.match(text, /说话方式：温柔/)
+  assert.equal(brain.persona().profile.avatar, null, '只接受 data:image 头像')
 })
 
 test('导出需要钥匙，而且只有同一把钥匙能导入', async () => {

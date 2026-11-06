@@ -1,0 +1,8 @@
+{
+  "name": "forget-me-not",
+  "description": "勿忘我 · 给 AI 的封存式长期记忆",
+  "owner": { "name": "kllcoco" },
+  "plugins": [
+    { "name": "forget-me-not", "source": "./plugins/claude-code", "description": "封存式长期记忆 + 3D 记忆星环" }
+  ]
+}

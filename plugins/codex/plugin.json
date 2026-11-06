@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "forget-me-not",
+  "version": "0.3.0",
+  "description": "勿忘我：封存式长期记忆——自动总结对话、联想召回、艾宾浩斯遗忘、可塑性性格与人设卡，附 3D 莫比乌斯记忆星环。",
+  "author": {
+    "name": "kllcoco",
+    "url": "https://github.com/kllcoco"
+  },
+  "homepage": "https://github.com/kllcoco/Forget-me-not",
+  "repository": "https://github.com/kllcoco/Forget-me-not",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "long-term-memory",
+    "persona",
+    "mcp"
+  ]
+}
