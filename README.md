@@ -108,6 +108,27 @@ codex plugin marketplace add kllcoco/Forget-me-not
 
 私聊有问必答，群里只在被 @ 或叫名字时才说话（不烧 token），还会时不时主动来找你聊天。一步一步的教程见 [docs/QQ接入.md](docs/QQ接入.md)。
 
+### ⑦ Aurabot（dsh 里的 QQ 伙伴）：只有一份记忆
+
+Aurabot 自带一套明文的 SQLite 记忆。装上勿忘我版的记忆模块，就把它整个换掉——QQ 里的她和 dsh 里的她用同一个大脑：
+
+```bash
+forget-me-not aurabot install            # 默认装进 ~/.dsh/plugins-data/aurabot（Windows：%USERPROFILE%\.dsh\plugins-data\aurabot）
+forget-me-not aurabot install --dir <Aurabot 数据目录>
+forget-me-not aurabot uninstall          # 用回 Aurabot 内置的记忆
+```
+
+它在 Aurabot 的 `modules/memory/` 写一个入口文件（同名模块替换内置的；原来有别的就改名成 `_memory.bak-…` 备份），几秒内自动生效。
+
+- **主人私聊** → 勿忘我主大脑（和 dsh / Claude Code 共用；「我眼中的你」也会跟着更新）。
+- **群友、陌生人** → 单独的角色「QQ 群友」（记忆星环里能切过去看），每条记忆都带 `qq:号码` 和昵称标签；每个人还有一份加密的小档案（印象、关系、相处经验、说话方式、喜欢/讨厌）。和主大脑用同一把钥匙。
+- **主人在群里说的话一律不记**：不进主大脑，也不当群友记。
+- 群里只带「正在说话的两个人的小档案 + 一句群印象」，私聊只带称呼和一句总体印象，相关记忆每轮最多 3 条（省 token）；群里翻不到主人的任何记忆。
+- 工具 `remember` / `recall_memory` / `lookup_person` / `chat_impression`，以及空间日记、B 站、翻唱、主动搭话等模块用到的 `add` / `addEvent` / `topicScore` / `dislikes` / `profiles` …… 都照常能用。
+- 「忘掉…」和 `/忘掉 …`：勿忘我的记忆是封存的，AI 改不了也删不掉；这里是「取代」——旧的标成已被取代、不再被想起，原文仍封存着。要彻底删除请在记忆星环里用钥匙删。
+- 钥匙不在时不会出错：照样能记，翻记忆时她会说「记忆暂时打不开」。
+- 模块在跑时，dsh 插件在 Aurabot 的会话里自动让开（不给 memory_* 工具、不注入、不自动总结，避免记两遍）；插件配置 `aurabot.module: ignore` 可以关掉这个行为。
+
 ### ⑤ 任何能调用函数的模型（OpenAI / Gemini / GPTs / Dify / Coze …）
 
 先启动记忆星环服务：
