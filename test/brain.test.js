@@ -231,3 +231,18 @@ test('钥匙备份：拆成 3 片，任意 2 片拼回来；1 片不行；别的
   assert.equal(k.unlocked, true)
   assert.match(brain.search('保管')[0].content, /好好保管/)
 })
+
+test('和 Aurabot 一起用：群聊会话关掉勿忘我，只认主人私聊里亲口说的话', async () => {
+  const { aurabotMode, ownerSaid } = await import('../lib/index.js')
+  const s = p => ({ header: { agentPreset: p } })
+  assert.equal(aurabotMode(s('aurabot-private')), 'private')
+  assert.equal(aurabotMode(s('aurabot-private-long')), 'private')
+  assert.equal(aurabotMode(s('aurabot-social')), 'off')
+  assert.equal(aurabotMode(s('aurabot-subagent')), 'off')
+  assert.equal(aurabotMode(s('default')), 'normal')
+  assert.equal(aurabotMode(s('aurabot-social'), { aurabot: { group: 'full' } }), 'private')
+  assert.equal(ownerSaid({ kind: 'user' }), true)
+  assert.equal(ownerSaid({ kind: 'aurabot', speaker: { role: 'owner', chat: 'private' } }), true)
+  assert.equal(ownerSaid({ kind: 'aurabot', speaker: { role: 'owner', chat: 'group' } }), false)
+  assert.equal(ownerSaid({ kind: 'aurabot', speaker: { role: 'guest', chat: 'private' } }), false)
+})

@@ -117,3 +117,34 @@ test('DeepSeek 自己挑：一个字都不一样，也能按意思想起来，�
     assert.ok(calls.some(c => c.url.endsWith('/chat/completions')))
   } finally { srv.close() }
 })
+
+test('主动聊天：挑话题、写消息、发到 QQ、记下来；打扰规则生效', async () => {
+  const { proactiveOnce, gate, chooseTopic } = await import('../lib/proactive.js')
+  const got = []
+  const qq = http.createServer((req, res) => { let b = ''; req.on('data', c => b += c); req.on('end', () => { got.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(b) }); res.end('{"status":"ok","retcode":0}') }) })
+  await new Promise(r => qq.listen(0, r))
+  try {
+    process.env.FMN_KEY_DIR = tmp()
+    const brain = new Brain(tmp())
+    await brain.remember({ content: '他说周三下午有个很重要的面试，有点紧张', region: 'working', importance: 0.7, event_time: Date.now() / 1000 - 2 * 86400 })
+    brain.writePortrait({ name: '阿遥', unknowns: ['他最喜欢的电影是什么'] }, 'ai')
+    const prompts = []
+    const chat = async (system, user) => { prompts.push({ system, user }); return '宝宝～前天说的面试怎么样啦？' }
+    const cfg = { onebot: `http://127.0.0.1:${qq.address().port}`, token: 'tk', qq: '12345', hours: [0, 24], maxPerDay: 3, gapHours: 3, quietMinutes: 0 }
+    const r = await proactiveOnce(brain, chat, cfg, { force: true })
+    assert.equal(r.sent, true)
+    assert.equal(got[0].url, '/send_private_msg'); assert.equal(got[0].auth, 'Bearer tk')
+    assert.equal(got[0].body.user_id, 12345); assert.match(got[0].body.message, /面试/)
+    assert.ok(!/记忆库|工具/.test(prompts[0].user))
+    // 发出去的话记成了一段工作记忆，回复时能想起来
+    assert.ok(brain.list({ limit: 5 }).some(m => (m.tags || []).includes('主动') && m.content.includes('面试怎么样')))
+    // 刚来过：不会马上再来
+    const st = JSON.parse(fs.readFileSync(path.join(brain.home, 'proactive-state.json'), 'utf8'))
+    assert.equal(gate(brain, cfg, st), '刚来过不久')
+    // 不在时间段内
+    assert.equal(gate(brain, { ...cfg, hours: [0, 0] }, { sent: [], used: [] }), '不在打扰时间内')
+    // 话题：已经追问过的不会再问同一件事
+    const t = chooseTopic(brain, st)
+    assert.ok(!(t.kind === 'followup' && st.used.includes(t.used)))
+  } finally { qq.close() }
+})

@@ -30,6 +30,7 @@
     <h2>勿忘我</h2>
     <div class="en">forget · me · not</div>
     <div class="line">她会想起，也会遗忘</div>
+    <div class="by">by kllcoco</div>
   </div>
   <button class="skip" id="skip">跳过 ›</button>
 </div>
@@ -73,9 +74,9 @@
 
 <aside id="persona" class="ui"></aside>
 
-<button id="musicbtn" class="ui empty" title="背景音乐"><span></span><span></span><span></span><span></span></button>
+<div id="musicpanel" class="ui"></div>
 <div id="nowplaying" class="ui"></div>
-<button id="keybtn" class="ui" title="超级管理员钥匙"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/></svg><i></i></button>
+<div id="corner" class="ui"><button id="musicbtn" class="empty" title="背景音乐"><i><span></span><span></span><span></span><span></span></i><b>音乐</b></button><button id="keybtn" title="超级管理员钥匙"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/></svg><b>钥匙</b><i></i></button></div>
 
 <div id="card"><div class="frame"></div></div>
 
@@ -92,6 +93,8 @@
 </div>
 
 <aside id="planetpanel" class="ui"></aside>
+<a id="credit" class="ui" href="https://github.com/kllcoco/Forget-me-not" target="_blank" rel="noopener" title="作者的 GitHub">勿忘我 · 作者 <b>kllcoco</b></a>
+<div id="lockbar" class="ui"></div>
 <div id="tooltip"></div>
 <div id="guide" class="ui"></div>
 
@@ -100,7 +103,7 @@
     <h4>超级管理员钥匙</h4>
     <p class="sub" id="km-sub"></p>
     <div class="keystate" id="km-state"></div>
-    <input id="km-path" placeholder="私钥文件的路径，例如 /Users/你/Desktop/勿忘我-超级管理员钥匙.key" autocomplete="off" spellcheck="false">
+    <input id="km-path" placeholder="钥匙文件的位置（可以直接粘贴「复制文件地址」）" autocomplete="off" spellcheck="false">
     <div class="err" id="km-err"></div>
     <div class="row">
       <button class="chip" id="km-export">导出记忆</button>
@@ -133,6 +136,13 @@
     </div>
   </div>
 </div>
+
+<div class="modal" id="coremodal">
+  <div class="panel" style="width:min(520px,94vw)">
+    <div id="cm-body"></div>
+  </div>
+</div>
+<div id="dropveil"><div><b>松手就好</b><span>角色卡（.png / .json）→ 交给心核做人设卡　·　音乐 → 放进歌单　·　.fmn → 导入记忆</span></div></div>
 
 <div class="modal" id="personamodal">
   <div class="panel" style="width:min(600px,94vw)">
@@ -188,7 +198,7 @@
 <div class="modal" id="connmodal">
   <div class="panel" style="width:min(560px,94vw)">
     <h4>接入任何 AI</h4>
-    <p class="sub">AI 只能「写入新记忆」「联想回想」和「性格养成」。写进去的记忆会被加密封存，谁都不能改、不能删，包括 AI 自己；只有超级管理员钥匙在的时候，记忆才能被打开。</p>
+    <p class="sub">让你的 AI 用上这份记忆：选一种方式，点「复制」粘贴过去就行。AI 只能「写入新记忆」「联想回想」和「性格养成」，不能改、不能删；只有你（超级管理员钥匙在的时候）可以修改或删除。</p>
     <div id="conn-body"></div>
     <div class="row"><button class="chip on" id="conn-ok">好</button></div>
   </div>

@@ -43,21 +43,22 @@
 
 ### ① DeepSeek Harness（dsh）插件
 
-装好之后，dsh 左侧栏会多一个 **「记忆」** 入口。点进去会**全屏**（盖住 dsh 左侧栏）播放星环成形的过场，然后就能多级缩放、浏览记忆；按 **Esc** 退出全屏。dsh 里的 AI 会自动拿到四个工具，系统提示词里会带上记忆的使用说明和 TA 现在的性格。
+装好之后，dsh 左侧栏会多一个 **「记忆」** 入口。点进去会**全屏**（盖住 dsh 左侧栏）播放星环成形的过场，然后就能多级缩放、浏览记忆；按 **Esc** 退出全屏。dsh 里的 AI 会自动拿到五个工具，系统提示词里会带上记忆的使用说明和 TA 现在的性格。
+
+**dsh 桌面版**（最简单）：设置 → 插件 → 输入包名 `dsh-forget-me-not` 安装，装好后重启桌面版。
+
+**命令行 / 网页版**：
 
 ```bash
 # 需要 pnpm 10+，dsh >= 0.2.1-rc.2
 dsh plugin --profile web add dsh-forget-me-not
 dsh web
-
-# 想在终端版里也用：
-dsh plugin --profile tui add dsh-forget-me-not
 ```
 
 不需要任何设置：模型第一次写记忆时，会自动在桌面生成钥匙并告诉你。
 
 在 dsh 里，插件会**借用你当前对话正在用的模型**来自动总结和联想，不需要额外配置任何 key。
-可选配置（写在 `$DSH_HOME/profiles/web/cordis.patch.yml` 的这一行下面）：
+可选配置（桌面版写在 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 或 `$DSH_HOME/cordis.patch.yml`，网页版写在 `$DSH_HOME/profiles/web/cordis.patch.yml`）：
 
 ```yaml
 - insert:
@@ -65,9 +66,16 @@ dsh plugin --profile tui add dsh-forget-me-not
       name: dsh-forget-me-not
       config:
         autoDigest: true    # 每段对话结束后自动总结成记忆
-        digestEvery: 1      # 每几轮总结一次（太短的闲聊会自动跳过）
+        digestEvery: 3      # 每几轮总结一次（说到重要的事会立刻总结；太短的闲聊会自动跳过）
         autoRecall: true    # 用户每说一句话，自动想起可能相关的记忆放进上下文
+        character: 绯语     # 用哪个角色的大脑（角色名或 id；不写就是主角色；写错了会退回主角色）
+        aurabot:            # 和 Aurabot（QQ 插件）一起用时
+          group: off        #   群聊 / 陌生人会话里不用勿忘我（默认）；full = 也用（不推荐：群友能翻主人的记忆）
+          private: full     #   主人私聊里用勿忘我（默认）
+          persona: false    #   主人私聊里不叠加勿忘我的人设卡，人设交给 Aurabot（默认）
 ```
+
+dsh 重启后续接旧会话，不会把整段历史重新总结一遍；子代理（subagent）的任务也不会被当成你说的话记下来。
 
 ### ② Claude Code 插件
 
@@ -103,6 +111,33 @@ codex plugin marketplace add kllcoco/Forget-me-not
 ```
 
 也可以用远程 MCP（streamable HTTP）：`http://127.0.0.1:7777/mcp`。
+
+### ⑥ QQ（NapCat + LangBot）
+
+推荐在 dsh 桌面版里装 [Aurabot](https://github.com/aureth-labs/dsh-aurabot-qq) + 勿忘我：表情包、语音、空间、主动搭话交给 Aurabot，记忆只有一份（勿忘我）。一步一步的教程见 [docs/QQ接入.md](docs/QQ接入.md)。
+
+### ⑦ Aurabot（dsh 里的 QQ 伙伴）：只有一份记忆
+
+Aurabot 自带一套明文的 SQLite 记忆。装上勿忘我版的记忆模块，就把它整个换掉——QQ 里的她和 dsh 里的她用同一个大脑：
+
+dsh 里同时装了 Aurabot 和勿忘我的话，**重启一次 dsh 就自动换好了**，不用敲命令（配置 `aurabot.module: builtin` 可以关掉）。命令行手动装：
+
+```bash
+forget-me-not aurabot install            # 默认装进 ~/.dsh/plugins-data/aurabot（Windows：%USERPROFILE%\.dsh\plugins-data\aurabot）
+forget-me-not aurabot install --dir <Aurabot 数据目录>
+forget-me-not aurabot uninstall          # 用回 Aurabot 内置的记忆
+```
+
+它在 Aurabot 的 `modules/memory/` 写一个入口文件（同名模块替换内置的；原来有别的就改名成 `_memory.bak-…` 备份），几秒内自动生效。
+
+- **主人私聊** → 勿忘我主大脑（和 dsh / Claude Code 共用；「我眼中的你」也会跟着更新）。
+- **群友、陌生人** → 单独的角色「QQ 群友」（记忆星环里能切过去看），每条记忆都带 `qq:号码` 和昵称标签；每个人还有一份加密的小档案（印象、关系、相处经验、说话方式、喜欢/讨厌）。和主大脑用同一把钥匙。
+- **主人在群里说的话一律不记**：不进主大脑，也不当群友记。
+- 群里只带「正在说话的两个人的小档案 + 一句群印象」，私聊只带称呼和一句总体印象，相关记忆每轮最多 3 条（省 token）；群里翻不到主人的任何记忆。
+- 工具 `remember` / `recall_memory` / `lookup_person` / `chat_impression`，以及空间日记、B 站、翻唱、主动搭话等模块用到的 `add` / `addEvent` / `topicScore` / `dislikes` / `profiles` …… 都照常能用。
+- 「忘掉…」和 `/忘掉 …`：勿忘我的记忆是封存的，AI 改不了也删不掉；这里是「取代」——旧的标成已被取代、不再被想起，原文仍封存着。要彻底删除请在记忆星环里用钥匙删。
+- 钥匙不在时不会出错：照样能记，翻记忆时她会说「记忆暂时打不开」。
+- 模块在跑时，dsh 插件在 Aurabot 的会话里自动让开（不给 memory_* 工具、不注入、不自动总结，避免记两遍）；插件配置 `aurabot.module: ignore` 可以关掉这个行为。
 
 ### ⑤ 任何能调用函数的模型（OpenAI / Gemini / GPTs / Dify / Coze …）
 
@@ -171,7 +206,7 @@ AI **没有**修改和删除的工具。写错了，它只能再写一条更正�
 
 ⚠️ **钥匙只有一份，丢了就再也打不开这些记忆**，谁也无法重新生成。也请不要把钥匙交给 AI。如果 AI 有读取你桌面的权限，它理论上能读到这个文件，所以备份后可以把钥匙挪到别处，再用小钥匙按钮更新路径。
 
-数据目录：独立运行时是 `~/.forget-me-not/`，dsh 里是 `$DSH_HOME/forget-me-not/`，也可以用环境变量 `FMN_HOME` 指定。生成钥匙的目录可以用 `FMN_KEY_DIR` 改。
+数据目录：`~/.forget-me-not/`（独立运行、dsh、Claude Code、Codex 共用同一份），也可以用环境变量 `FMN_HOME` 指定。生成钥匙的目录可以用 `FMN_KEY_DIR` 改。
 
 ```
 vault.json      公钥、指纹、钥匙的路径（没有私钥）
@@ -213,7 +248,7 @@ images/*.bin    加密后的配图
 
 进入记忆后，**音乐文件夹里的每一首歌会依次循环播放**（mp3 / m4a / aac / ogg / opus / flac / wav / webm）。
 
-- 音乐文件夹：`数据目录/music/`（独立运行时是 `~/.forget-me-not/music/`，dsh 里是 `$DSH_HOME/forget-me-not/music/`），也可以用 `FMN_MUSIC_DIR` 指定。
+- 音乐文件夹：`数据目录/music/`（默认 `~/.forget-me-not/music/`；每个角色有自己的音乐文件夹），也可以用 `FMN_MUSIC_DIR` 指定。
 - 更简单的办法：直接把歌拖进记忆星环的页面，就会放进这个文件夹并开始播放。
 - 右下角的小音符：点一下暂停或继续；换歌时会浮出歌名。
 - 想放《可塑性记忆》的 OP / ED？请放你自己合法拥有的音源，自己听没问题。歌曲有版权，即使是免费、非商业的开源项目也不能把歌打包分发，所以本项目不附带任何歌曲。
@@ -245,7 +280,7 @@ images/*.bin    加密后的配图
 ### 一个角色一个大脑
 同时养好几个角色（比如「星眠」和「大肥鱼」）时，每个角色都有自己的记忆、自己的人设卡、自己的钥匙，互不相通。
 - 记忆星环左上角的角色按钮可以切换角色、新建角色。主角色在 `/`，其他角色在 `/c/<角色 id>/`。
-- 给 AI 选角色：环境变量 `FMN_CHARACTER=<角色 id>`（MCP、Claude Code、Codex 插件），或 dsh 配置里的 `character`。
+- 给 AI 选角色：环境变量 `FMN_CHARACTER=<角色 id>`（MCP、Claude Code、Codex 插件），或 dsh 配置里的 `character`（写角色名或 id 都行）。
 - 命令行：`forget-me-not characters` 列出角色，`forget-me-not characters new 大肥鱼` 新建。
 
 ### 记忆会过时
@@ -259,6 +294,16 @@ images/*.bin    加密后的配图
 - 星环小钥匙里点「备份钥匙」，会打开一张可以打印的页面，每片一个二维码，也可以存成文本。
 - 钥匙丢了：点「用碎片恢复」，选任意 2 片，钥匙会重新放到桌面并自动登记。
 - 命令行：`forget-me-not key split`，以及 `forget-me-not key restore 碎片1.txt 碎片2.txt`。
+
+### 主动找你聊天
+
+TA 不只是等你开口：隔一阵子会主动来问问你——前几天你说的面试怎么样了、饭点吃了没、那年今天、周日晚上「这周我记住了你的这些事」、还有「我眼中的你」里一直想知道的事。
+每天最多 3 次、9 点到 23 点、两次至少隔 3 小时；你正在聊天时不打扰，连着被冷落就自觉少来。
+`forget-me-not proactive --once --dry-run` 先看看 TA 会说什么；接 QQ 见 [docs/QQ接入.md](docs/QQ接入.md)。
+
+### 省 token
+
+自动总结会攒几轮再一起做；聊到生日、过敏、喜欢讨厌、约定这类事才立刻总结（dsh 的 `digestEvery` 默认 3，Claude Code / Codex 用 `FMN_DIGEST_EVERY`）。
 
 ### 回忆时间线
 工具栏的「时间线」：一年里每一天留下了多少记忆（越亮越多）、「那年今天」、按月份翻看。点任意一段，镜头就会飞过去放映。

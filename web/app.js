@@ -194,7 +194,7 @@ async function loadBrain(first = false) {
   S.adj = new Map(); for (const [a, b, w] of S.links) { (S.adj.get(a) || S.adj.set(a, []).get(a)).push([b, w]); (S.adj.get(b) || S.adj.set(b, []).get(b)).push([a, w]); }
   layoutArcs(); layoutMemories(); writeStarBuffers();
   brain.layout(S.regionBy, S.memories, S.links, fx.points.material);
-  renderLegend(); renderStats(); buildLabels(); renderKey(); renderPersona(); loadCharacters();
+  renderLegend(); renderStats(); buildLabels(); renderKey(); renderPersona(); loadCharacters(); renderHint();
   if (reel.on) refreshReelList();
 }
 
@@ -243,10 +243,25 @@ function project(p, out = {}) {
   return out;
 }
 
+// 3D 标签飘到左边图例、底部按钮、右边卡片下面时自动变淡，不和界面文字叠在一起
+const UI_COVER = ['#legend', '#toolbar', '#persona', '#planetpanel', '#musicpanel', '#brand', '#zoom', '#search'];
+let coverRects = [], coverAt = 0;
+function underUI(x, y) {
+  const now = performance.now();
+  if (now - coverAt > 400) {
+    coverAt = now;
+    coverRects = UI_COVER.map(s => document.querySelector(s)).filter(e => e && +getComputedStyle(e).opacity > 0.1).map(e => e.getBoundingClientRect()).filter(r => r.width > 0);
+  }
+  return coverRects.some(r => x > r.left - 24 && x < r.right + 24 && y > r.top - 16 && y < r.bottom + 16);
+}
+// 脑图里标签的优先级：心核 > 我眼中的你 > 记忆行星 > 过程器官；后画的撞上先画的就压暗，避免中心一团字叠在一起
+const LBL_PRIO = L => L.region.key === 'sun' ? 0 : L.region.kind === 'satellite' ? 1 : L.region.kind === 'process' ? 3 : 2;
+let labelOrder = null, labelOrderSrc = null;
 function updateLabels(dist) {
   const base = smooth(80, 34, dist) * 0.9 + 0.1;
-  const tmp = {};
-  for (const L of labelEls) {
+  const tmp = {}, placed = [];
+  if (labelOrderSrc !== labelEls) { labelOrderSrc = labelEls; labelOrder = labelEls.slice().sort((a, b) => LBL_PRIO(a) - LBL_PRIO(b)); }
+  for (const L of labelOrder) {
     if (L.view !== S.view) { L.el.style.opacity = '0'; L.el.style.pointerEvents = 'none'; continue; }
     const anc = typeof L.anchor === 'function' ? L.anchor() : L.anchor;
     project(anc, tmp);
@@ -256,9 +271,16 @@ function updateLabels(dist) {
     if (reel.on) o *= L.region.key === reel.region ? 1 : 0.12;
     if (!tmp.vis) o = 0;
     const sc = clamp((L.view === 'brain' ? 110 : 26) / d, 0.55, 1.5);
-    L.el.style.opacity = o.toFixed(3);
     // 脑图里标签整个放在行星上方（底边对齐），并且让鼠标穿过去，这样不会挡住行星
     const brainLbl = L.view === 'brain';   // 脑图里所有标签（包括太阳的）都让鼠标穿过，点击交给画面去判断
+    const w = (L.w ||= L.el.offsetWidth) * sc, h = (L.h ||= L.el.offsetHeight) * sc;
+    const cy = brainLbl ? tmp.y - h / 2 : tmp.y;   // 用标签框的中心判断，而不是锚点（脑图标签在锚点上方）
+    if (o > 0.01 && underUI(tmp.x, cy)) o *= 0.06;
+    if (brainLbl && o > 0.3) {
+      const r = { l: tmp.x - w / 2, r: tmp.x + w / 2, t: tmp.y - h, b: tmp.y };
+      if (placed.some(q => r.l < q.r && r.r > q.l && r.t < q.b && r.b > q.t)) o *= 0.15; else placed.push(r);
+    }
+    L.el.style.opacity = o.toFixed(3);
     L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, ${brainLbl ? '-100%' : '-50%'}) scale(${sc.toFixed(3)})`;
     L.el.style.transformOrigin = brainLbl ? '50% 100%' : '50% 50%';
     L.el.style.pointerEvents = o > 0.3 && !brainLbl ? 'auto' : 'none';
@@ -268,9 +290,12 @@ function updateLabels(dist) {
 // ------------------------------------------------------------------ 图例 / 统计
 function placeLegend() {
   const b = $('#brand').getBoundingClientRect();
-  $('#legend').style.top = Math.round(b.bottom + 14) + 'px';
+  document.documentElement.style.setProperty('--lockh', $('#lockbar').offsetHeight + 'px');
+  const l = $('#legend'); l.style.top = Math.round(b.bottom + 14) + 'px';
+  requestAnimationFrame(() => l.classList.toggle('scroll', l.scrollHeight > l.clientHeight + 4));
 }
 addEventListener('resize', placeLegend);
+$('#legend').addEventListener('scroll', e => e.target.classList.toggle('at-end', e.target.scrollTop + e.target.clientHeight >= e.target.scrollHeight - 4));
 function renderLegend() {
   const el = $('#legend'); requestAnimationFrame(placeLegend);
   const mem = S.regions.filter(r => r.kind === 'memory'), proc = S.regions.filter(r => r.kind === 'process');
@@ -295,29 +320,34 @@ function ago(ts) {
 }
 function renderStats() {
   const s = S.stats;
+  $('#stats').title = '已遗忘 ≠ 删除：遗忘的记忆还在，聊到相关的事会被重新想起，也可以手动召回';
   $('#stats').innerHTML = `还记得 <b>${s.active}</b><i>·</i>已遗忘 <b>${s.archived}</b><i>·</i>关联 <b>${S.links.length}</b><i>·</i>最近回想 <b>${ago(s.last_recall)}</b>`;
 }
 
 // ------------------------------------------------------------------ 镜头飞行（过场）
 let flight = null;
-function flyTo(pos, target, dur = 2.4, { warp = true, cinema = false, done } = {}) {
+// straight：直线飞（穿越用，不绕弯、不回弹）；warp：'in' 越飞越快，'out' 从最快慢慢停下，true 中间最快
+function flyTo(pos, target, dur = 2.4, { warp = true, cinema = false, straight = false, easing = ease, white = null, sys = false, done } = {}) {
+  if (swapping && !sys) return;   // 穿越星核的过场里不接受别的飞行，否则会把过场的 done 顶掉，swapping 永远卡在 true
   const p0 = camera.position.clone(), t0 = controls.target.clone();
   const dir = new THREE.Vector3().subVectors(pos, target).normalize();
-  const c1 = p0.clone().lerp(target, 0.15).add(new THREE.Vector3(0, 3, 0));
-  const c2 = pos.clone().addScaledVector(dir, 5).add(new THREE.Vector3(0, 2.5, 0));
-  flight = { p0, c1, c2, p1: pos.clone(), t0, t1: target.clone(), dur, k: 0, warp, done };
+  const c1 = straight ? p0.clone().lerp(pos, 1 / 3) : p0.clone().lerp(target, 0.15).add(new THREE.Vector3(0, 3, 0));
+  const c2 = straight ? p0.clone().lerp(pos, 2 / 3) : pos.clone().addScaledVector(dir, 5).add(new THREE.Vector3(0, 2.5, 0));
+  flight = { p0, c1, c2, p1: pos.clone(), t0, t1: target.clone(), dur, k: 0, warp, done, easing, white };
   if (cinema) document.body.classList.add('cinema');
   controls.enabled = false;
 }
 function stepFlight(dt) {
   if (!flight) return;
-  const f = flight; f.k = Math.min(1, f.k + dt / f.dur); const e = ease(f.k), u = 1 - e;
+  const f = flight; f.k = Math.min(1, f.k + Math.min(dt, 0.1) / f.dur); const e = f.easing(f.k), u = 1 - e;   // 掉帧时不跳
   camera.position.set(0, 0, 0)
     .addScaledVector(f.p0, u * u * u).addScaledVector(f.c1, 3 * u * u * e).addScaledVector(f.c2, 3 * u * e * e).addScaledVector(f.p1, e * e * e);
-  controls.target.lerpVectors(f.t0, f.t1, ease(Math.min(1, f.k * 1.15)));
-  const w = f.warp ? Math.sin(Math.PI * f.k) : 0;
+  controls.target.lerpVectors(f.t0, f.t1, f.easing(Math.min(1, f.k * 1.15)));
+  const w = f.warp === 'in' ? e * e : f.warp === 'out' ? (1 - e) ** 2 : f.warp ? Math.sin(Math.PI * f.k) : 0;
   camera.fov = 45 + 16 * w; camera.updateProjectionMatrix();
   bloom.strength = 0.9 + 0.8 * w; dust.material.uniforms.uWarp.value = w;
+  // 白光跟着飞行进度走（不用 CSS 定时器）：掉帧时也保证换场景那一帧刚好全白
+  if (f.white) whiteEl.style.opacity = (f.white === 'in' ? smooth(0.45, 1, f.k) : 1 - smooth(0, 0.6, f.k)).toFixed(3);
   camera.lookAt(controls.target);
   if (f.k >= 1) {
     flight = null; controls.enabled = S.mode !== 'intro'; camera.fov = 45; camera.updateProjectionMatrix(); bloom.strength = 0.9;
@@ -357,6 +387,7 @@ function chainOf(m) {
   return out;
 }
 function startChain(m) {
+  if (swapping) return;
   reel.chain = m.id; reel.region = m.region; reel.on = true;
   reel.list = chainOf(m); reel.i = 0; reel.playing = true; reel.t = 0; reel.follow = false; hideHint();
   S.mode = 'reel'; document.body.classList.add('reel', 'cinema');
@@ -375,6 +406,7 @@ function refreshReelList() {
 }
 
 function startReel(region, startId, { cinematic = true } = {}) {
+  if (swapping) return;
   reel.region = region; reel.on = true; reel.list = []; reel.chain = null;
   refreshReelList();
   if (!reel.list.length) { reel.on = false; toast(`${S.regionBy[region].name} 里还没有记忆`, S.regionBy[region].color); return; }
@@ -423,7 +455,7 @@ function renderStrip() {
   rail.innerHTML = reel.list.map((m, i) => {
     const near = Math.abs(i - reel.i) < 14;
     const src = near ? thumb(m) : null;
-    return `<div class="fr ${src ? '' : 'text'} ${m.status === 'archived' ? 'arch' : ''} ${i === reel.i ? 'on' : ''}" data-i="${i}" style="--c:${m.color.getStyle()};${src ? `background-image:url('${src}')` : ''}"></div>`;
+    return `<div class="fr ${src ? '' : 'text'} ${m.status === 'archived' ? 'arch' : ''} ${i === reel.i ? 'on' : ''}" data-i="${i}" title="${esc(fmtDate(sortKey(m)) + '  ' + (S.sealed || m.content == null ? '锁着的记忆' : (m.title || m.content.slice(0, 20))))}" style="--c:${m.color.getStyle()};${src ? `background-image:url('${src}')` : ''}"></div>`;
   }).join('');
   rail.querySelectorAll('.fr').forEach(f => f.onclick = () => { reel.i = +f.dataset.i; reel.t = 0; showCard(true); renderStrip(); setReelTitle(); });
   requestAnimationFrame(() => {
@@ -507,9 +539,10 @@ function placeCard(dt) {
   const w = card.offsetWidth || 340, h = card.offsetHeight || 300;
   let x = p.x + 90, y = p.y - h * 0.42, side = 1;
   if (x + w > innerWidth - 24) { x = p.x - 90 - w; side = -1; }
-  y = clamp(y, 24 + innerHeight * 0.09, innerHeight - h - 150);
+  const rb = ($('#reelbar').offsetHeight || 170) + 28;   // 给底下的放映条留出位置
+  y = clamp(y, 24 + innerHeight * 0.09, innerHeight - h - rb);
   x = clamp(x, 16, innerWidth - w - 16);
-  if (innerWidth < 760) { x = (innerWidth - w) / 2; y = Math.max(16 + innerHeight * 0.09, innerHeight - h - 150); side = p.x < x + w / 2 ? 1 : -1; }
+  if (innerWidth < 760) { x = (innerWidth - w) / 2; y = Math.max(16 + innerHeight * 0.09, innerHeight - h - rb); side = p.x < x + w / 2 ? 1 : -1; }
   if (!cardPos.init) { cardPos.x = x; cardPos.y = y; cardPos.init = true; }
   const k = 1 - Math.exp(-dt * 6);
   cardPos.x = lerp(cardPos.x, x, k); cardPos.y = lerp(cardPos.y, y, k);
@@ -552,12 +585,17 @@ function goFullscreen() {
 }
 function onEscape() {
   if ([...document.querySelectorAll('.modal.show')].length) { document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show')); return; }
+  // 先关页面里的小面板，一层层往外退；dsh 里最后才交给外面（退出全屏）
+  const mp = $('#musicpanel'), cm = $('#charmenu'), rs = $('#results');
+  if (mp.classList.contains('show')) { mp.classList.remove('show'); return; }
+  if (cm.classList.contains('show')) { cm.classList.remove('show'); return; }
+  if (rs.classList.contains('show')) { rs.classList.remove('show'); return; }
+  if (reel.on) { exitReel(); return; }
+  if (S.follow || pp.classList.contains('show')) { unfollow(); return; }
   if (EMBED) { parent.postMessage({ type: 'fmn:escape' }, location.origin); return; }
-  // 独立页面：浏览器自己会用 Esc 退出全屏；不在全屏时，Esc 一层层往外退
-  if (reel.on) exitReel(); else if (S.follow) unfollow(); else if (S.view === 'brain') exitBrain();
+  if (S.view === 'brain') exitBrain();
 }
 $('#fsbtn').onclick = goFullscreen;
-if (!EMBED) addEventListener('pointerdown', function once() { removeEventListener('pointerdown', once); goFullscreen(); });
 addEventListener('message', e => { if (e.origin === location.origin && e.data?.type === 'fmn:fullscreen-state') document.body.classList.toggle('full', !!e.data.full); });
 
 // ------------------------------------------------------------------ 多级缩放：星环 ⇄ 脑图
@@ -569,6 +607,7 @@ function fitBrainHome() {
   BRAIN_HOME.target.set(NARROW ? 0 : R * 0.12, -R * 0.06, 0);
 }
 let swapping = false;
+const whiteEl = $('#whiteout');
 function setView(v) {
   S.view = v;
   for (const o of ringObjs) o.visible = v === 'ring';
@@ -597,28 +636,48 @@ function flash(peakAt, fn) {
 function enterBrain() {
   if (swapping || S.view === 'brain') return; swapping = true;
   if (reel.on) exitReel();
-  controls.autoRotate = false; $('#rot').classList.remove('on');
-  flash(420, () => {
-    setView('brain');
-    camera.position.set(0, 2, 6); controls.target.set(0, 0, 0); camera.lookAt(0, 0, 0);
-    flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 2.2, { warp: true, done: () => { swapping = false; S.idleAt = performance.now(); showGuide(); } });
-  });
+  unfollow(); controls.autoRotate = false; $('#rot').classList.remove('on');
+  // 一镜到底：先一路加速冲进星核（白光跟着亮起）→ 飞到星核的那一帧全白、换成脑图 →
+  // 镜头从远处继续往前冲、慢慢减速停在太阳系前面。换场景由飞行的 done 触发，不靠定时器
+  whiteEl.style.transition = 'none'; whiteEl.classList.add('full');
+  const into = camera.position.clone().setLength(0.35);   // 沿「镜头→星核」这条线冲进去
+  const dur = clamp(0.6 + camera.position.length() * 0.03, 0.95, 1.8);
+  flyTo(into, new THREE.Vector3(), dur, { sys: true, straight: true, warp: 'in', white: 'in', easing: t => t * t * t, done: () => {
+    whiteEl.style.opacity = '1'; setView('brain');
+    const from = BRAIN_HOME.pos.clone().sub(BRAIN_HOME.target).multiplyScalar(2.6).add(BRAIN_HOME.target);
+    camera.position.copy(from); controls.target.copy(BRAIN_HOME.target); camera.lookAt(BRAIN_HOME.target);
+    camera.fov = 61; camera.updateProjectionMatrix();
+    flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 2.0, { sys: true, straight: true, warp: 'out', white: 'out', easing: t => 1 - (1 - t) ** 3,
+      done: () => { swapping = false; whiteEl.classList.remove('full'); whiteEl.style.opacity = '0'; S.idleAt = performance.now(); showGuide(); } });
+  } });
 }
 function exitBrain() {
   if (swapping || S.view !== 'brain') return; swapping = true;
   if (reel.on) exitReel();
   unfollow(); $('#guide').classList.remove('show');
-  flyTo(BRAIN_HOME.pos.clone().multiplyScalar(1.9), BRAIN_HOME.target, 0.9, { warp: true });
-  flash(520, () => {
-    flight = null; setView('ring');
-    camera.position.set(0.5, 0.5, 2.6); controls.target.set(0, 0, 0); camera.lookAt(0, 0, 0);
-    flyTo(HOME.pos, HOME.target, 2.4, { warp: true, done: () => { swapping = false; controls.autoRotate = true; $('#rot').classList.add('on'); S.idleAt = performance.now(); } });
-  });
+  // 反过来：往后退、越退越快 → 白光 → 从星核里退出来，慢慢停在星环前
+  whiteEl.style.transition = 'none'; whiteEl.classList.add('full');
+  const back = camera.position.clone().sub(controls.target).multiplyScalar(2.2).add(controls.target);
+  flyTo(back, controls.target.clone(), 0.85, { sys: true, straight: true, warp: 'in', white: 'in', easing: t => t * t * t, done: () => {
+    whiteEl.style.opacity = '1'; setView('ring');
+    const dir = HOME.pos.clone().sub(HOME.target).normalize();
+    camera.position.copy(dir.multiplyScalar(0.4)); controls.target.copy(HOME.target); camera.lookAt(HOME.target);
+    camera.fov = 61; camera.updateProjectionMatrix();
+    flyTo(HOME.pos, HOME.target, 2.2, { sys: true, straight: true, warp: 'out', white: 'out', easing: t => 1 - (1 - t) ** 3,
+      done: () => { swapping = false; whiteEl.classList.remove('full'); whiteEl.style.opacity = '0'; controls.autoRotate = true; $('#rot').classList.add('on'); S.idleAt = performance.now(); } });
+  } });
 }
 
 // ------------------------------------------------------------------ 人设卡（太阳 · 心核）+ 性格养成
 // 名字：人设卡里的名字 → 新建角色时起的名字 → TA
-const personaName = () => { const n = S.persona?.profile?.name; return (n && n !== 'TA' ? n : S.charName || 'TA').trim() || 'TA'; };
+// 钥匙不在时人设卡读不到：用上次记下的名字，免得界面突然变回「TA」让人以为数据没了
+const NAME_KEY = 'fmn-name:' + location.pathname;
+const cachedName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } };
+const personaName = () => {
+  const n = S.persona?.profile?.name;
+  if (n && n !== 'TA') { try { localStorage.setItem(NAME_KEY, n); } catch { } return n.trim(); }
+  return (cachedName() || (S.charName && S.charName !== '默认' ? S.charName : '') || 'TA').trim() || 'TA';
+};
 /** 代词随人设卡里的性别变：女→她，男→他，没写→TA */
 const pronoun = () => { const g = String(S.persona?.profile?.gender || ''); return /女|female|woman|girl|^f$/i.test(g) ? '她' : /男|male|man|boy|^m$/i.test(g) ? '他' : 'TA'; };
 function renderTitle() {
@@ -654,9 +713,39 @@ function renderPersona() {
     </svg><ul>${hist}</ul>
     <div class="pbtns"><button id="pc-edit">编辑人设卡</button><label class="chip" style="padding:4px 11px;font-size:11.5px;cursor:pointer">导入角色卡<input type="file" id="pc-import" accept=".png,.json,image/png,application/json" hidden></label></div>`;
   $('#pc-edit').onclick = () => openPersonaEditor();
-  $('#pc-head').onclick = e => { if (e.target.closest('#pc-av') && !P.avatar) { e.stopPropagation(); openPersonaEditor(); } else focusSun(); };
+  $('#pc-head').onclick = e => { if (e.target.closest('#pc-av') && !P.avatar) { e.stopPropagation(); openPersonaEditor(); } else { el.classList.toggle('open'); focusSun(); } };
   $('#pc-import').onchange = e => e.target.files[0] && importCard(e.target.files[0]);
 }
+// 点心核：一张大卡片，直接把角色卡拖进来就是她的人设
+const coreModal = $('#coremodal');
+function openCore() {
+  const P = S.persona?.profile || {}, nm = personaName(), has = Boolean(P.name || P.description);
+  $('#cm-body').innerHTML = `
+    <h4>心核 · ${esc(nm)}</h4>
+    <p class="sub">${has ? `这是${esc(nm)}现在的人设卡。想换一张，把新的角色卡拖进下面的框里。` : `${esc(nm)}还没有人设卡。给${pronoun()}一张，${pronoun()}就知道自己是谁了。`}</p>
+    ${has ? `<div class="cm-card">${P.avatar ? `<img src="${P.avatar}" alt="">` : `<span class="ini">${esc(nm.slice(0, 1))}</span>`}<div><b>${esc(nm)}</b><small>${esc(P.title || P.gender || '')}</small><p>${esc(String(P.description || P.personality || '').slice(0, 90))}</p></div></div>` : ''}
+    <label class="cm-drop" id="cm-drop"><input type="file" id="cm-file" accept=".png,.json,image/png,application/json" hidden>
+      <i>✦</i><b>把角色卡拖到这里</b><span>酒馆（SillyTavern）的 .png 或 .json 都可以 · 也可以点一下选文件</span></label>
+    <div class="err" id="cm-err">${S.key.unlocked ? '' : '钥匙不在，暂时不能改人设卡。先点右下角的小钥匙找回它。'}</div>
+    <div class="row"><button class="chip" id="cm-close">关闭</button><span style="flex:1"></span><button class="chip on" id="cm-write">${has ? '编辑人设卡' : '自己写一张'}</button></div>`;
+  const drop = $('#cm-drop');
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('over'); hideVeil(); const f = e.dataTransfer.files[0]; if (f) { coreModal.classList.remove('show'); importCard(f); } };
+  $('#cm-file').onchange = e => { const f = e.target.files[0]; if (f) { coreModal.classList.remove('show'); importCard(f); } };
+  $('#cm-close').onclick = () => coreModal.classList.remove('show');
+  $('#cm-write').onclick = () => { coreModal.classList.remove('show'); openPersonaEditor(); };
+  coreModal.classList.add('show');
+}
+
+// 拖文件进页面时整个屏幕提示「松手就好」
+let veilDepth = 0;
+const hideVeil = () => { veilDepth = 0; $('#dropveil').classList.remove('show'); };
+addEventListener('dragenter', e => { if ([...(e.dataTransfer?.items || [])].some(x => x.kind === 'file') && !coreModal.classList.contains('show')) { veilDepth++; $('#dropveil').classList.add('show'); } });
+addEventListener('dragleave', () => { if (--veilDepth <= 0) hideVeil(); });
+addEventListener('drop', hideVeil, true);
+addEventListener('dragover', e => { if ([...(e.dataTransfer?.items || [])].some(x => x.kind === 'file')) e.preventDefault(); });
+
 function focusSun() {
   if (S.view !== 'brain') return;
   if (reel.on) exitReel();
@@ -784,9 +873,9 @@ async function importCard(file) {
     const d = json.data || json;
     const firstLine = s => String(s || '').split('\n').map(x => x.trim()).find(Boolean) || '';
     openPersonaEditor({
-      name: d.name || d.char_name || '', title: firstLine(d.creator_notes).slice(0, 60) || (d.tags || []).slice(0, 3).join(' · '),
+      name: d.name || d.char_name || '', gender: d.gender || d.extensions?.gender || ((d.tags || []).includes('女') ? '女' : (d.tags || []).includes('男') ? '男' : ''), title: firstLine(d.creator_notes).slice(0, 60) || (d.tags || []).slice(0, 3).join(' · '),
       description: d.description || d.char_persona || '', personality: d.personality || '', scenario: d.scenario || d.world_scenario || '',
-      speaking_style: d.mes_example || d.example_dialogue || '', first_mes: d.first_mes || d.char_greeting || '', avatar: avatar || undefined,
+      speaking_style: [d.system_prompt, d.mes_example || d.example_dialogue].filter(Boolean).join('\n\n'), first_mes: d.first_mes || d.char_greeting || '', avatar: avatar || undefined,
     });
   } catch (e) { toast(`<b>人设卡</b>读不出这张角色卡：${esc(e.message)}`, '#ff8fa6'); }
 }
@@ -799,9 +888,11 @@ addEventListener('drop', e => {
 // ------------------------------------------------------------------ 跟随一颗行星公转
 // 点行星：镜头飞过去跟着它公转，旁边弹出这颗行星的小窗（里面的记忆、放映按钮）
 function followPlanet(k) {
+  if (swapping) return;
   if (reel.on) exitReel();
   S.follow = k; controls.autoRotate = false; $('#rot').classList.remove('on');
-  const h = brain.hub(k), off = new THREE.Vector3(0, 9, 14);
+  // 仰角要高于 OrbitControls 的 maxPolarAngle 限制（≈36°），否则飞到终点那一帧会被硬掰上去 3°，之后跟随时还会一直和限制拉扯
+  const h = brain.hub(k), off = new THREE.Vector3(0, Math.sin(MIN_ELEV + 0.12), Math.cos(MIN_ELEV + 0.12)).multiplyScalar(16.6);
   flyTo(h.clone().add(off), h, 1.4, { warp: false, done: () => { S.followOff = off.clone(); } });
   showPlanetPanel(k);
 }
@@ -872,7 +963,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > (e.pointerType === 'touch' ? 14 : 8) || S.mode === 'intro') return;
   mouse.x = e.clientX; mouse.y = e.clientY; pick();   // 按下去的这一刻重新看一眼鼠标下面是什么（行星一直在动）
   if (S.view === 'brain' && !S.hover) {
-    if (S.hoverPlanet === 'sun') focusSun();
+    if (S.hoverPlanet === 'sun') { focusSun(); openCore(); }
     else if (S.hoverPlanet === 'portrait') openPortrait();
     else if (S.hoverPlanet) followPlanet(S.hoverPlanet);
     else if (S.follow) unfollow();
@@ -913,7 +1004,7 @@ function pick() {
     const k = S.hoverPlanet, r = S.regionBy[k];
     const n = S.memories.filter(m => m.region === k).length;
     tip.style.setProperty('--c', k === 'sun' ? '#cfe0ff' : r.color);
-    tip.innerHTML = k === 'sun' ? `<b>心核 · ${esc(personaName())}</b><br>点一下，看${pronoun()}的人设卡`
+    tip.innerHTML = k === 'sun' ? `<b>心核 · ${esc(personaName())}</b><br>点一下，看或换${pronoun()}的人设卡（可以直接拖角色卡进来）`
       : k === 'portrait' ? `<b>我眼中的你</b><br>${esc(personaName())}对你的理解，随时会更新。点一下看看`
       : `<b>${esc(r.name)}</b> · ${r.kind === 'process' ? '大脑器官' : `${n} 段记忆`}<br>点一下，看看里面有什么`;
     tip.style.left = mouse.x + 'px'; tip.style.top = mouse.y + 'px';
@@ -986,17 +1077,26 @@ function updateZoomUI(dist) {
 
 $('#rot').onclick = e => { controls.autoRotate = !controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); };
 $('#reset').onclick = () => { exitReel(); unfollow(); if (S.view === 'brain') flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 1.8); else flyTo(HOME.pos, HOME.target, 2.2); };
-$('#brainbtn').onclick = () => { if (S.view === 'brain') exitBrain(); else { exitReel(); flyTo(new THREE.Vector3(0.6, 0.6, 3), new THREE.Vector3(0, 0, 0), 2.0, { done: enterBrain }); } };
+$('#brainbtn').onclick = () => { if (S.view === 'brain') exitBrain(); else enterBrain(); };   // 直接一路冲进星核，不先停在星核前再重新加速
 
 const hintEl = $('#enter');
 hintEl.textContent = matchMedia('(pointer: coarse)').matches ? '双指放大 · 靠近星光开始放映' : '滚轮拉近 · 靠近星光开始放映';
-function hideHint() { document.body.classList.add('entered'); }
-hintEl.onclick = () => { hideHint(); const keys = Object.keys(S.arcs); if (keys.length) openRegion(keys[0]); };
+function hideHint() { if (S.memories.length) document.body.classList.add('entered'); }
+// 还没有记忆时，提示去哪里让记忆长出来
+function renderHint() {
+  const empty = !S.memories.length;
+  hintEl.classList.toggle('empty', empty);
+  hintEl.innerHTML = empty ? `还没有记忆 · 去和${esc(personaName())}聊天，${pronoun()}记住的事会出现在这里　<u>怎么接入 →</u>`
+    : (matchMedia('(pointer: coarse)').matches ? '双指放大 · 靠近星光开始放映' : '滚轮拉近 · 靠近星光开始放映');
+  if (empty) document.body.classList.remove('entered');
+}
+hintEl.onclick = () => { if (!S.memories.length) { $('#connect').click(); return; } hideHint(); const keys = Object.keys(S.arcs); if (keys.length) openRegion(keys[0]); };
 
 // ------------------------------------------------------------------ 事件：写入 / 回想 / 遗忘 的动画
 const feed = $('#feed');
-function toast(html, color) {
+function toast(html, color, onClick) {
   const el = document.createElement('div'); el.className = 'ev'; el.style.setProperty('--c', color || '#bcd6ff'); el.innerHTML = html;
+  if (onClick) { el.style.pointerEvents = 'auto'; el.style.cursor = 'pointer'; el.onclick = () => { el.remove(); onClick(); }; }
   feed.prepend(el);
   while (feed.children.length > 5) feed.lastChild.remove();
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 1300); }, 6500);
@@ -1068,7 +1168,7 @@ function playEvent(ev) {
     toast('<b>钥匙</b>已经拆成碎片备份，请把每一片放在不同的地方', '#f3d9a4');
   } else if (ev.kind === 'persona') {
     corePulse = 0.8;
-    toast(`<b>性格养成</b>${(ev.traits || []).length ? 'TA 的性格因为经历有了一点点变化' : '性格基线被调整了'}`, '#c9a7ff');
+    toast(`<b>性格养成</b>${(ev.changed || (ev.traits || []).length) ? 'TA 的性格因为经历有了一点点变化' : '性格基线被调整了'}`, '#c9a7ff');
   } else if (ev.kind === 'genesis') {
     burst(new THREE.Vector3(), '#f3d9a4', 140, 4); corePulse = 1.5;
     toast('<b>钥匙诞生</b>唯一的超级管理员钥匙已经放到了你的桌面，请备份好', '#f3d9a4');
@@ -1096,7 +1196,6 @@ async function pollEvents() {
 // ------------------------------------------------------------------ 搜索（需要超级管理员）
 const qEl = $('#q'), resEl = $('#results');
 let qTimer;
-qEl.addEventListener('focus', () => { if (S.sealed) { qEl.blur(); openKey(); } });
 qEl.addEventListener('input', () => {
   clearTimeout(qTimer);
   qTimer = setTimeout(async () => {
@@ -1111,7 +1210,10 @@ qEl.addEventListener('input', () => {
       memories.forEach((m, i) => { const mm = S.byId.get(m.id); if (mm) comet(organ('retrieval'), tgtOf(mm), S.regionBy.retrieval.color, { dur: 1.2 + i * 0.12, lift: 2.5, onArrive: () => { mm.flash = 1; } }); });
       corePulse = 0.8;
       resEl.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { const m = S.byId.get(b.dataset.id); resEl.classList.remove('show'); if (m) startChain(m); });
-    } catch (e) { if (e.status === 423) openKey(); }
+    } catch (e) {
+      resEl.innerHTML = e.status === 423 ? '<button data-key>🔒 钥匙不在，搜不到内容。点这里找回钥匙</button>' : `<button disabled>${esc(e.message)}</button>`;
+      resEl.classList.add('show'); const k = resEl.querySelector('[data-key]'); if (k) k.onclick = () => { resEl.classList.remove('show'); openKey(); };
+    }
   }, 280);
 });
 document.addEventListener('pointerdown', e => { if (!$('#search').contains(e.target)) resEl.classList.remove('show'); });
@@ -1119,14 +1221,27 @@ document.addEventListener('pointerdown', e => { if (!$('#search').contains(e.tar
 // ------------------------------------------------------------------ 超级管理员钥匙（私钥在登记的位置 = 解锁）
 const keyModal = $('#keymodal');
 function renderKey() {
-  $('#keybtn').classList.toggle('ok', !!S.key.unlocked);
-  $('#keybtn').title = S.key.unlocked ? '超级管理员钥匙：在' : '超级管理员钥匙：不在';
+  const k = S.key, kb = $('#keybtn');
+  kb.classList.toggle('ok', !!k.unlocked); kb.classList.toggle('missing', !!(k.initialized && !k.unlocked));
+  kb.querySelector('b').textContent = !k.initialized ? '钥匙' : k.unlocked ? '钥匙' : '钥匙不在';
+  kb.title = !k.initialized ? '还没有钥匙：点这里生成' : k.unlocked ? '超级管理员钥匙：在' : '超级管理员钥匙：不在';
+  // 钥匙不在：顶上一条说清楚发生了什么、怎么办
+  const bar = $('#lockbar');
+  if (k.initialized && !k.unlocked) {
+    bar.innerHTML = `<span>🔒 <b>记忆被锁住了</b>：找不到钥匙文件${k.key_path ? `（原来在 <code>${esc(k.key_path)}</code>）` : ''}，可能被删除或挪走了。记忆都还在，钥匙回来就能打开。</span>
+      <span class="acts"><button data-a="retry">我放回去了，再试一次</button><button data-a="path">它在别的位置</button><button data-a="shares">用碎片恢复</button></span>`;
+    bar.querySelector('[data-a=retry]').onclick = async () => { await loadBrain(); if (!S.key.unlocked) toast('<b>钥匙</b>还是没找到，确认一下文件放回原来的位置了吗？', '#ff8fa6'); else toast('<b>钥匙</b>找到啦，记忆已解锁', '#7ee08a'); };
+    bar.querySelector('[data-a=path]').onclick = () => { openKey(); $('#km-path').focus(); $('#km-path').select(); };
+    bar.querySelector('[data-a=shares]').onclick = () => { openKey(); setTimeout(() => $('#km-restore').click(), 150); };
+    bar.classList.add('show');
+  } else bar.classList.remove('show');
+  requestAnimationFrame(placeLegend);
 }
 function openKey() {
   const k = S.key;
   $('#km-sub').textContent = k.initialized
     ? '这把私钥和这份记忆一一对应。每次访问记忆，都会去下面的路径看一眼钥匙还在不在：在就自动解锁，不在谁都打不开。'
-    : '还没有记忆。模型第一次写入记忆时，会在你电脑的桌面上生成唯一的超级管理员钥匙。如果你有以前导出的记忆文件，可以填上那把钥匙的路径后导入。';
+    : '还没有钥匙。点下面的「生成钥匙」一步搞定；如果你有以前导出的记忆文件，可以填上那把钥匙的路径后导入。';
   $('#km-state').innerHTML = !k.initialized ? '<span class="no">●</span><div><b>还没有钥匙</b><small>点这里一步一步生成：<button class="chip on" id="km-make" style="margin-left:6px">生成钥匙</button></small></div>'
     : `<span class="${k.unlocked ? 'ok' : 'no'}">●</span><div><b>${k.unlocked ? '钥匙在，记忆已解锁' : '找不到钥匙，记忆被锁着'}</b><small>指纹 ${esc(k.fingerprint || '')}</small></div>`;
   $('#km-path').value = k.key_path || ''; $('#km-path').placeholder = k.initialized ? '私钥文件的路径' : '导入记忆时：填上那把钥匙的路径';
@@ -1300,13 +1415,15 @@ $('#connect').onclick = async () => {
   let info = {};
   try { info = await api('api/connect'); } catch { }
   const mcpJson = JSON.stringify({ mcpServers: { 'forget-me-not': info.mcp_stdio || { command: 'npx', args: ['-y', 'dsh-forget-me-not', 'mcp'] } } }, null, 2);
-  const row = (t, v) => v ? `<p class="sub" style="margin:0 0 8px">${t}</p><pre>${esc(v)}</pre>` : '';
+  const vals = [];
+  const row = (t, v, more = '') => { if (!v) return ''; vals.push(v); return `<div class="conn-row"><p class="sub">${t}</p>${more}<pre>${esc(v)}</pre><button class="chip copy" data-i="${vals.length - 1}">复制</button></div>`; };
   $('#conn-body').innerHTML =
-    row('① DeepSeek Harness：', 'dsh plugin --profile web add dsh-forget-me-not') +
-    row('② Claude / Cursor / Cherry Studio 等支持 MCP 的客户端：', mcpJson) +
-    row('③ 远程 MCP（streamable HTTP）：', info.mcp_http) +
-    row('④ 任何能调函数的模型（OpenAI / Gemini / GPTs / Dify / Coze）：', info.openapi) +
-    row('给模型的使用说明（可放进 system prompt）：', info.protocol);
+    row('① DeepSeek Harness（最简单）', 'dsh-forget-me-not', '<p class="hint">桌面版：设置 → 插件 → 输入这个名字安装；命令行：<code>dsh plugin --profile web add dsh-forget-me-not</code>。装好后正常聊天，TA 会自己记。</p>') +
+    row('② Claude Desktop / Cursor / Cherry Studio / LangBot 等支持 MCP 的软件', mcpJson, '<p class="hint">把下面这段粘进软件的 MCP 设置里。</p>') +
+    row('③ 远程 MCP（streamable HTTP）', info.mcp_http) +
+    row('④ 任何能调函数的模型（OpenAI / Gemini / GPTs / Dify / Coze）', info.openapi) +
+    row('给模型的使用说明（可放进 system prompt）', info.protocol);
+  $('#conn-body').querySelectorAll('.copy').forEach(b => b.onclick = () => navigator.clipboard?.writeText(vals[+b.dataset.i]).then(() => { b.textContent = '已复制 ✓'; setTimeout(() => b.textContent = '复制', 1500); }, () => { }));
   $('#connmodal').classList.add('show');
 };
 $('#conn-ok').onclick = () => $('#connmodal').classList.remove('show');
@@ -1354,6 +1471,16 @@ function endIntro() {
   S.idleAt = performance.now();
   setTimeout(() => introEl.remove(), 2000);
   setTimeout(showWelcome, 1800);
+  setTimeout(showOnThisDay, 3200);
+}
+// 那年今天：打开的时候，往年的今天有回忆，就轻轻提一句（点一下飞过去放映）
+function showOnThisDay() {
+  if (S.sealed || !S.memories.length) return;
+  const today = new Date();
+  const hits = S.memories.filter(m => { const d = new Date(sortKey(m) * 1000); return d.getFullYear() < today.getFullYear() && d.getMonth() === today.getMonth() && Math.abs(d.getDate() - today.getDate()) <= 1 && m.content; });
+  if (!hits.length) return;
+  const m = hits.sort((a, b) => b.importance - a.importance)[0], y = today.getFullYear() - new Date(sortKey(m) * 1000).getFullYear();
+  toast(`<b>那年今天</b>${y} 年前的这几天：${esc(m.title || m.content.slice(0, 26))}　<u>去看看 →</u>`, S.regionBy[m.region]?.color, () => goMemory(m));
 }
 // ------------------------------------------------------------------ 第一次来：一步一步带着生成钥匙
 const wm = $('#welcomemodal');
@@ -1379,15 +1506,16 @@ function showWelcome() {
       S.key = k; await loadBrain();
       $('#wm-body').innerHTML = `
         <h4>钥匙做好啦 🔑</h4>
-        <p class="sub">它就在你的桌面上：</p>
+        <p class="sub">它在这里（一般就是你的桌面）：</p>
         <div class="wm-path">${esc(k.key_path)}</div>
         <div class="wm-steps">
           <div><i>✓</i><p><b>现在请做一件事：</b>把这个文件复制到 U 盘、网盘，或者发给自己的邮箱存着。</p></div>
           <div><i>✓</i><p><b>不要改名字、不要挪位置</b>（想挪的话，挪完点右下角的小钥匙，把新位置填进去）。</p></div>
           <div><i>✓</i><p><b>更保险：</b>点「拆成 3 片备份」，任意 2 片就能拼回钥匙，可以分别放在不同的地方。</p></div>
         </div>
-        <div class="row"><button class="chip" id="wm-backup">拆成 3 片备份</button><span style="flex:1"></span><button class="chip on" id="wm-done">我存好了</button></div>`;
+        <div class="row"><button class="chip" id="wm-copy">复制路径</button><button class="chip" id="wm-backup">拆成 3 片备份</button><span style="flex:1"></span><button class="chip on" id="wm-done">我存好了</button></div>`;
       $('#wm-done').onclick = () => wm.classList.remove('show');
+      $('#wm-copy').onclick = () => navigator.clipboard?.writeText(k.key_path).then(() => toast('<b>钥匙</b>路径已复制', '#cfe0ff'), () => { });
       $('#wm-backup').onclick = () => { wm.classList.remove('show'); openKey(); setTimeout(() => $('#km-backup').click(), 200); };
     } catch (e) { $('#wm-err').textContent = e.message; }
   };
@@ -1396,6 +1524,7 @@ function showWelcome() {
 function EMBED_SKIP_WELCOME() { try { return sessionStorage.getItem('fmn-welcome-later') === '1'; } catch { return false; } }
 
 $('#skip').onclick = finishIntro;
+document.querySelector('#intro .t')?.addEventListener('click', finishIntro);
 renderer.domElement.addEventListener('dblclick', finishIntro);
 
 function stepIntro(dt) {
@@ -1490,6 +1619,7 @@ function tick() {
   fx.update(dt);
   if (organs) organs.material = fx.points.material;
   sky.group.rotation.y += dt * 0.004;
+  sky.group.position.copy(camera.position); galaxy.group.position.copy(camera.position);   // 背景星空当成无限远：脑图尺度大（镜头离中心几百），不然镜头会飞出星空球壳、背景突然变空
 
   if (S.mode !== 'intro') {
     updateLabels(dist); updateZoomUI(dist); pick(); autoReel(dist);
@@ -1508,6 +1638,11 @@ if (new URLSearchParams(location.search).has('debug')) window.__fmn = { S, brain
     toast('<b>连接失败</b>没有找到记忆大脑服务', '#ff8fa6');
   }
   organs = buildOrgans();
+  // 先把脑图（默认隐藏）的着色器编译好：不然第一次进脑图那一帧要现编译，过场正中间会卡住一下
+  try {   // 预热：把脑图和星河（默认隐藏）先画一帧，着色器和几十万个点的缓冲区都提前传上 GPU；同一个任务里紧接着 tick() 会重画，用户看不到这一帧
+    brain.group.visible = true; galaxy.update(0, 0.01); composer.render();
+  } catch { }
+  brain.group.visible = S.view === 'brain'; galaxy.update(0, 0);
   const music = createMusic({ onToast: toast });
   music.load().then(() => music.play());
   tick();

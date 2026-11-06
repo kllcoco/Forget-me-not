@@ -2,7 +2,7 @@
 # 可选配置：
 #   config:
 #     autoDigest: true     # 每段对话结束后自动总结成记忆
-#     digestEvery: 1       # 每几轮对话总结一次
+#     digestEvery: 3       # 每几轮对话总结一次（说到重要的事会立刻总结）
 #     autoRecall: true     # 用户说话时自动想起相关记忆放进上下文
 - insert:
     - id: forget-me-not
