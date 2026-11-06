@@ -212,13 +212,15 @@ export function createBrainMap(scene) {
   }
 
   /** running=false 时（比如正在看某段记忆的卡片）公转暂停，方便看清。 */
-  function update(dt, time, hiOf, running = true) {
+  function update(dt, time, hiOf, running = true, camPos = null) {
     if (running) clock += dt;
     placeAll();
     for (const [k, s] of Object.entries(planetSprites)) {
       s.position.copy(hubs[k]);
       const on = k === lit ? 1 : 0;
-      s.material.opacity = 0.26 + 0.06 * Math.sin(time * 0.8 + PHASE[k]) + 0.14 * on;   // 慢慢呼吸的柔光
+      // 慢慢呼吸的柔光；镜头靠近时自动变淡，不会糊成一大团
+      const near = camPos ? Math.min(1, Math.max(0.25, (camPos.distanceTo(hubs[k]) - 6) / 40)) : 1;
+      s.material.opacity = (0.26 + 0.06 * Math.sin(time * 0.8 + PHASE[k]) + 0.14 * on) * near;
     }
     for (const [k, l] of Object.entries(orbitByKey)) l.material.opacity += ((k === lit ? 0.2 : l.userData.base) - l.material.opacity) * 0.08;
     const at = stars.geometry.attributes;

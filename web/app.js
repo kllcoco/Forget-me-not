@@ -207,7 +207,7 @@ function buildLabels() {
     const bel = el.cloneNode(true); bel.classList.remove('organ'); bel.classList.add('big');
     bel.onclick = () => openRegion(r.key);
     labelsEl.appendChild(bel);
-    const lift = new THREE.Vector3(0, r.key === 'longterm' ? 4.6 : r.kind === 'process' ? 1.6 : 2.8, 0);
+    const lift = new THREE.Vector3(0, r.key === 'longterm' ? 4.2 : r.kind === 'process' ? 1.4 : 2.2, 0);
     labelEls.push({ el: bel, anchor: () => brain.hub(r.key).add(lift), region: r, view: 'brain' });
   }
   // 太阳：心核 · TA
@@ -239,8 +239,11 @@ function updateLabels(dist) {
     if (!tmp.vis) o = 0;
     const sc = clamp((L.view === 'brain' ? 110 : 26) / d, 0.55, 1.5);
     L.el.style.opacity = o.toFixed(3);
-    L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, -50%) scale(${sc.toFixed(3)})`;
-    L.el.style.pointerEvents = o > 0.3 ? 'auto' : 'none';
+    // 脑图里标签整个放在行星上方（底边对齐），并且让鼠标穿过去，这样不会挡住行星
+    const brainLbl = L.view === 'brain' && L.region.key !== 'sun';
+    L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, ${brainLbl ? '-100%' : '-50%'}) scale(${sc.toFixed(3)})`;
+    L.el.style.transformOrigin = brainLbl ? '50% 100%' : '50% 50%';
+    L.el.style.pointerEvents = o > 0.3 && !brainLbl ? 'auto' : 'none';
   }
 }
 
@@ -763,15 +766,18 @@ function pick() {
   }
   // 脑图里：行星和太阳也能指
   S.hoverPlanet = null;
-  if (S.view === 'brain' && !best) {
-    let pd = 1e9;
+  if (S.view === 'brain') {
+    // 指着行星中心 → 选行星；指着周围的卫星 → 选那段记忆；周围空着 → 也算选行星
+    let pd = 1e9, pk = null;
     for (const k of brain.keys()) {
       project(brain.hub(k), tmp); if (!tmp.vis) continue;
-      const d = Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y), r = 16 + brain.sizeOf(k) * 120 / Math.max(20, camera.position.distanceTo(brain.hub(k)));
-      if (d < r && d < pd) { pd = d; S.hoverPlanet = k; }
+      const d = Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y);
+      if (d < pd) { pd = d; pk = k; }
     }
+    const reach = pk ? 14 + brain.sizeOf(pk) * 260 / Math.max(20, camera.position.distanceTo(brain.hub(pk))) : 0;
+    if (pk && (pd < 13 || (!best && pd < reach))) { S.hoverPlanet = pk; best = null; }
     project(new THREE.Vector3(), tmp);
-    if (!S.hoverPlanet && tmp.vis && Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y) < 34) S.hoverPlanet = 'sun';
+    if (!S.hoverPlanet && !best && tmp.vis && Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y) < 34) S.hoverPlanet = 'sun';
   }
   brain.highlight(S.hoverPlanet && S.hoverPlanet !== 'sun' ? S.hoverPlanet : S.follow || (reel.on && S.view === 'brain' ? reel.region : null));
   S.hover = best;
@@ -1173,7 +1179,7 @@ function tick() {
   sky.mat.uniforms.uFade.value = S.mode === 'intro' ? sky.mat.uniforms.uFade.value : 1 - 0.6 * galaxyFade;
   if (S.view === 'brain') {
     // 太阳系公转；看卡片的时候放慢，方便看清
-    brain.update(reel.on ? dt * 0.25 : dt, time, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)));
+    brain.update(reel.on ? dt * 0.25 : dt, time, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)), true, camera.position);
     brain.stars.material.uniforms.uDim.value = stars.material.uniforms.uDim.value;
     // 脑图里的数据流：时不时有一颗光点从输入流向海马体，再流向某个脑区
     if (!swapping && Math.random() < dt * 0.5) {
@@ -1191,6 +1197,9 @@ function tick() {
   placeCard(dt);
   composer.render();
 }
+
+// 调试：地址里带 ?debug 时，把内部状态挂到 window 上（自动化测试用）
+if (new URLSearchParams(location.search).has('debug')) window.__fmn = { S, brain, camera, project, mouse };
 
 // ------------------------------------------------------------------ 启动
 (async function boot() {
