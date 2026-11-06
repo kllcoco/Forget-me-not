@@ -453,3 +453,12 @@ body:has(#planetpanel.show) #persona { opacity: 0; pointer-events: none; }
 .wm-note { font-size: 12px; line-height: 1.7; color: var(--muted); margin: 0 0 12px; }
 .wm-path { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.3); border: 1px solid var(--line);
   color: #e8efff; word-break: break-all; user-select: text; margin-bottom: 12px; }
+
+/* ---------- 作者署名 ---------- */
+#intro .by { margin-top: 26px; font-family: var(--latin); font-style: italic; font-size: 13px; letter-spacing: .3em; color: var(--muted); opacity: .8; }
+#credit { left: 50%; bottom: 8px; transform: translateX(-50%); font-size: 11px; letter-spacing: .22em; color: var(--muted); opacity: .5; text-decoration: none; white-space: nowrap; transition: opacity .3s; }
+#credit b { font-family: var(--latin); font-weight: 500; letter-spacing: .12em; color: var(--ink-2); }
+#credit:hover { opacity: 1; }
+body.reel #credit, body.intro #credit { opacity: 0; pointer-events: none; }
+/* 脑图里右边有人设卡 / 行星小窗，缩放条挪到它们左边 */
+body.brain #zoom { right: 346px; }
