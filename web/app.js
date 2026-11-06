@@ -296,11 +296,14 @@ function placeLegend() {
   const b = { bottom: Math.max(...[$('#brand'), ...$('#brand').querySelectorAll('h1, .poem, .stats, .chars > button')].map(e => e.getBoundingClientRect()).filter(r => r.height > 0).map(r => r.bottom)) };
   document.documentElement.style.setProperty('--lockh', $('#lockbar').offsetHeight + 'px');
   const l = $('#legend'); l.style.top = Math.round(b.bottom + 14) + 'px';
+  // 底边跟着底部按钮的真实位置走（屏幕缩放大、按钮折成两行时也不会钻到按钮底下）
+  const tb = $('#toolbar').getBoundingClientRect();
+  if (tb.height) l.style.bottom = Math.max(16, Math.round(innerHeight - tb.top + 14)) + 'px';
   requestAnimationFrame(() => l.classList.toggle('scroll', l.scrollHeight > l.clientHeight + 4));
 }
 addEventListener('resize', placeLegend);
 // 标题区高度一变（字体加载完、换了名字、诗句换行），列表马上跟着挪
-try { new ResizeObserver(() => placeLegend()).observe($('#brand')); } catch { }
+try { const ro = new ResizeObserver(() => placeLegend()); ro.observe($('#brand')); ro.observe($('#toolbar')); } catch { }
 document.fonts?.ready?.then(placeLegend);
 $('#legend').addEventListener('scroll', e => e.target.classList.toggle('at-end', e.target.scrollTop + e.target.clientHeight >= e.target.scrollHeight - 4));
 function renderLegend() {
