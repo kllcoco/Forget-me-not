@@ -1,0 +1,14 @@
+{
+  "description": "勿忘我：醒来时带上人设卡和重要记忆；每句话自动想起相关记忆；对话结束后自动总结成记忆",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "npx -y dsh-forget-me-not hook session-start", "timeout": 60 } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "npx -y dsh-forget-me-not hook user-prompt-submit", "timeout": 30 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "npx -y dsh-forget-me-not hook stop", "timeout": 30 } ] }
+    ]
+  }
+}
