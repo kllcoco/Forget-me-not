@@ -266,18 +266,23 @@ function updateLabels(dist) {
 }
 
 // ------------------------------------------------------------------ 图例 / 统计
+function placeLegend() {
+  const b = $('#brand').getBoundingClientRect();
+  $('#legend').style.top = Math.round(b.bottom + 14) + 'px';
+}
+addEventListener('resize', placeLegend);
 function renderLegend() {
-  const el = $('#legend');
+  const el = $('#legend'); requestAnimationFrame(placeLegend);
   const mem = S.regions.filter(r => r.kind === 'memory'), proc = S.regions.filter(r => r.kind === 'process');
   el.innerHTML = `<div class="head">${esc(personaName())} 的回忆</div>` +
     `<button class="moon" data-moon="1" style="--c:#e6eeff"><span class="dot"></span><span>我眼中的你</span><span class="n">☾</span></button>` +
     mem.map(r => `<button data-k="${r.key}" style="--c:${r.color}" class="${reel.on && reel.region === r.key ? 'on' : ''}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n">${r.count}</span></button>`).join('') +
     `<div class="sep"></div>` +
     proc.map(r => `<button class="proc" data-p="${r.key}" style="--c:${r.color}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n"></span></button>`).join('');
-  el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => openRegion(b.dataset.k));
+  el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => S.view === 'brain' ? followPlanet(b.dataset.k) : openRegion(b.dataset.k));
   el.querySelector('[data-moon]').onclick = openPortrait;
   el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
-    if (S.view === 'brain') { const h = brain.hub(b.dataset.p); flyTo(h.clone().add(new THREE.Vector3(4, 16, 18)), h, 1.8); }
+    if (S.view === 'brain') followPlanet(b.dataset.p);
     else flyTo(ORGAN_POS[b.dataset.p].clone().add(new THREE.Vector3(6, 3, 8)), ORGAN_POS[b.dataset.p], 2.2);
   });
 }
@@ -573,7 +578,7 @@ function setView(v) {
   dust.position.set(v === 'brain' ? 3 : 0, v === 'brain' ? -2 : 0, 0);
   if (organs) organs.visible = v === 'ring';
   brain.group.visible = v === 'brain';
-  document.body.classList.toggle('brain', v === 'brain');
+  document.body.classList.toggle('brain', v === 'brain'); setTimeout(placeLegend, 50); setTimeout(placeLegend, 1300);
   $('#brainbtn').classList.toggle('on', v === 'brain');
   renderTitle();
   fitBrainHome();
@@ -792,22 +797,62 @@ addEventListener('drop', e => {
 });
 
 // ------------------------------------------------------------------ 跟随一颗行星公转
+// 点行星：镜头飞过去跟着它公转，旁边弹出这颗行星的小窗（里面的记忆、放映按钮）
 function followPlanet(k) {
-  const has = S.memories.some(m => m.region === k);
-  if (has) { S.follow = null; openRegion(k); return; }       // 有记忆：跟着它放映走马灯
   if (reel.on) exitReel();
   S.follow = k; controls.autoRotate = false; $('#rot').classList.remove('on');
   const h = brain.hub(k), off = new THREE.Vector3(0, 9, 14);
   flyTo(h.clone().add(off), h, 1.4, { warp: false, done: () => { S.followOff = off.clone(); } });
-  toast(`<b>${esc(S.regionBy[k].name)}</b>${esc(S.regionBy[k].desc)}　（点空白处离开）`, S.regionBy[k].color);
+  showPlanetPanel(k);
 }
-function unfollow() { S.follow = null; S.followOff = null; }
+function unfollow() { S.follow = null; S.followOff = null; hidePlanetPanel(); }
+
+const pp = $('#planetpanel');
+function showPlanetPanel(k) {
+  const r = S.regionBy[k]; if (!r) return;
+  const list = S.memories.filter(m => m.region === k).sort((a, b) => (b.status !== 'archived') - (a.status !== 'archived') || sortKey(b) - sortKey(a));
+  const live = list.filter(m => m.status !== 'archived').length
+  const locked = S.sealed || list.some(m => m.content == null);
+  const st = m => m.superseded_by ? '已被新的记忆取代' : m.merged_into ? '已整理进新的记忆' : m.status === 'archived' ? '已淡忘 · 可召回' : m.forget_in_days == null ? '永远不会忘' : `还会记得约 ${daysLeft(m)} 天`;
+  // 每段记忆直接把内容写出来：标题 + 正文（默认三行，点一下展开全文、配图和标签）
+  const item = m => {
+    if (S.sealed || m.content == null) return `<div class="mem locked"><div class="mh"><time>${fmtDate(sortKey(m))}</time></div><p>🔒 锁着的记忆</p></div>`;
+    const src = picOf(m);
+    return `<div class="mem ${m.status === 'archived' ? 'faded' : ''}" data-id="${m.id}">
+      <div class="mh"><time>${fmtDate(sortKey(m))}</time>${m.emotion ? `<span class="emo">${esc(m.emotion)}</span>` : ''}</div>
+      <b>${esc(m.title || m.content.slice(0, 14))}</b>
+      <p>${esc(m.content)}</p>
+      <div class="more">${src ? `<img src="${src}" alt="">` : ''}
+        <div class="tags">${(m.tags || []).slice(0, 5).map(t => `<span>#${esc(t)}</span>`).join('')}<span class="st">${st(m)}</span></div>
+        <button class="chip go">✦ 从这段开始联想放映</button></div>
+    </div>`;
+  };
+  pp.style.setProperty('--c', r.color);
+  pp.innerHTML = `<button class="x" title="关闭（Esc）">✕</button>
+    <h4><span class="dot"></span>${esc(r.name)}</h4>
+    <p class="sub">${esc(r.desc)}</p>
+    ${r.kind === 'process' ? `<p class="note">这是大脑的器官，不存放记忆，只负责让记忆流动。</p>` : `
+    <div class="stats"><span><b>${live}</b> 段记得</span>${list.length - live ? `<span><b>${list.length - live}</b> 段已淡忘</span>` : ''}</div>
+    ${list.length ? `<p class="how">${locked ? '钥匙不在登记的位置，内容看不到。点右下角的小钥匙找回它。' : '下面就是这里的每一段记忆。点一段展开全文；想看动画就点「放映」，会一段一段播给你看。'}</p>
+    <button class="chip on play">▶ 放映这里的 ${list.length} 段记忆</button>
+    <div class="list">${list.map(item).join('')}</div>`
+      : `<p class="note">这里还没有记忆。${esc(personaName())}以后记下相关的事，就会出现在这里。</p>`}`}`;
+  pp.querySelector('.x').onclick = unfollow;
+  const play = pp.querySelector('.play'); if (play) play.onclick = () => { const kk = k; hidePlanetPanel(); S.follow = null; S.followOff = null; openRegion(kk); };
+  pp.querySelectorAll('.mem[data-id]').forEach(el => {
+    el.onclick = () => { const open = el.classList.contains('open'); pp.querySelectorAll('.mem.open').forEach(x => x.classList.remove('open')); if (!open) el.classList.add('open'); };
+    el.querySelector('.go').onclick = e => { e.stopPropagation(); const m = S.byId.get(el.dataset.id); hidePlanetPanel(); S.follow = null; S.followOff = null; if (m) startChain(m); };
+  });
+  tip.classList.remove('show');
+  pp.classList.add('show');
+}
+function hidePlanetPanel() { pp.classList.remove('show'); }
 
 // 刚进入星河时的小提示
 let guideTimer;
 function showGuide() {
   const g = $('#guide');
-  g.innerHTML = `<span>点太阳 · 看${esc(personaName())}的人设卡</span><i>·</i><span>点行星 · 跟着它公转</span><i>·</i><span>点星光 · 联想放映</span><i>·</i><span>拉远 · 回到星环</span>`;
+  g.innerHTML = `<span>点太阳 · 看${esc(personaName())}的人设卡</span><i>·</i><span>点行星 · 看里面的记忆</span><i>·</i><span>点星光 · 联想放映</span><i>·</i><span>拉远 · 回到星环</span>`;
   g.classList.add('show'); clearTimeout(guideTimer); guideTimer = setTimeout(() => g.classList.remove('show'), 7000);
 }
 
@@ -824,7 +869,7 @@ renderer.domElement.addEventListener('pointerleave', () => { mouse.x = -1; S.hov
 renderer.domElement.addEventListener('pointerdown', e => { mouse.down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
 renderer.domElement.addEventListener('pointerup', e => {
   const d = mouse.down; mouse.down = null;
-  if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || S.mode === 'intro') return;
+  if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > (e.pointerType === 'touch' ? 14 : 8) || S.mode === 'intro') return;
   mouse.x = e.clientX; mouse.y = e.clientY; pick();   // 按下去的这一刻重新看一眼鼠标下面是什么（行星一直在动）
   if (S.view === 'brain' && !S.hover) {
     if (S.hoverPlanet === 'sun') focusSun();
@@ -858,9 +903,9 @@ function pick() {
       if (d < pd) { pd = d; pk = k; }
     }
     const reach = pk ? 14 + brain.sizeOf(pk) * 260 / Math.max(20, camera.position.distanceTo(brain.hub(pk))) : 0;
-    if (pk && (pd < 13 || (!best && pd < reach))) { S.hoverPlanet = pk; best = null; }
+    if (pk && (pd < 24 || (!best && pd < reach + 10))) { S.hoverPlanet = pk; best = null; }
     project(new THREE.Vector3(), tmp);
-    if (!S.hoverPlanet && !best && tmp.vis && Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y) < 34) S.hoverPlanet = 'sun';
+    if (!S.hoverPlanet && !best && tmp.vis && Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y) < 44) S.hoverPlanet = 'sun';
   }
   brain.highlight(S.hoverPlanet && S.hoverPlanet !== 'sun' ? S.hoverPlanet : S.follow || (reel.on && S.view === 'brain' ? reel.region : null));
   S.hover = best;
@@ -870,7 +915,7 @@ function pick() {
     tip.style.setProperty('--c', k === 'sun' ? '#cfe0ff' : r.color);
     tip.innerHTML = k === 'sun' ? `<b>心核 · ${esc(personaName())}</b><br>点一下，看${pronoun()}的人设卡`
       : k === 'portrait' ? `<b>我眼中的你</b><br>${esc(personaName())}对你的理解，随时会更新。点一下看看`
-      : `<b>${esc(r.name)}</b> · ${r.kind === 'process' ? '大脑器官' : `${n} 段记忆`}<br>${n ? '点一下，跟着它公转，放映里面的记忆' : esc(r.desc)}`;
+      : `<b>${esc(r.name)}</b> · ${r.kind === 'process' ? '大脑器官' : `${n} 段记忆`}<br>点一下，看看里面有什么`;
     tip.style.left = mouse.x + 'px'; tip.style.top = mouse.y + 'px';
     tip.classList.add('show'); renderer.domElement.style.cursor = 'pointer';
     return;
@@ -1082,11 +1127,12 @@ function openKey() {
   $('#km-sub').textContent = k.initialized
     ? '这把私钥和这份记忆一一对应。每次访问记忆，都会去下面的路径看一眼钥匙还在不在：在就自动解锁，不在谁都打不开。'
     : '还没有记忆。模型第一次写入记忆时，会在你电脑的桌面上生成唯一的超级管理员钥匙。如果你有以前导出的记忆文件，可以填上那把钥匙的路径后导入。';
-  $('#km-state').innerHTML = !k.initialized ? '<span>尚未生成</span>'
+  $('#km-state').innerHTML = !k.initialized ? '<span class="no">●</span><div><b>还没有钥匙</b><small>点这里一步一步生成：<button class="chip on" id="km-make" style="margin-left:6px">生成钥匙</button></small></div>'
     : `<span class="${k.unlocked ? 'ok' : 'no'}">●</span><div><b>${k.unlocked ? '钥匙在，记忆已解锁' : '找不到钥匙，记忆被锁着'}</b><small>指纹 ${esc(k.fingerprint || '')}</small></div>`;
   $('#km-path').value = k.key_path || ''; $('#km-path').placeholder = k.initialized ? '私钥文件的路径' : '导入记忆时：填上那把钥匙的路径';
   $('#km-export').disabled = !k.unlocked; $('#km-export').style.opacity = k.unlocked ? 1 : 0.4;
   $('#km-err').textContent = '';
+  const mk = $('#km-make'); if (mk) mk.onclick = () => { keyModal.classList.remove('show'); try { sessionStorage.removeItem('fmn-welcome-later'); } catch { } showWelcome(); };
   keyModal.classList.add('show');
 }
 $('#keybtn').onclick = openKey;
@@ -1307,7 +1353,48 @@ function endIntro() {
   controls.autoRotate = true;
   S.idleAt = performance.now();
   setTimeout(() => introEl.remove(), 2000);
+  setTimeout(showWelcome, 1800);
 }
+// ------------------------------------------------------------------ 第一次来：一步一步带着生成钥匙
+const wm = $('#welcomemodal');
+function showWelcome() {
+  if (S.key.initialized || EMBED_SKIP_WELCOME()) return;
+  const nm = personaName();
+  $('#wm-body').innerHTML = `
+    <h4>欢迎来到勿忘我 🌸</h4>
+    <p class="sub">在开始之前，先给${esc(nm)}的记忆配一把钥匙。</p>
+    <div class="wm-steps">
+      <div><i>1</i><p><b>钥匙是什么？</b>就是你电脑上的一个小文件。${esc(nm)}记住的每一件事都会被锁起来，<b>只有这把钥匙能打开</b>。</p></div>
+      <div><i>2</i><p><b>放在哪？</b>点下面的按钮，它会出现在你的<b>桌面</b>上，名字叫「勿忘我-超级管理员钥匙.key」。</p></div>
+      <div><i>3</i><p><b>要做什么？</b>把它<b>复制一份</b>到 U 盘或网盘。钥匙只有一把，<b>丢了谁都打不开</b>，包括我自己。</p></div>
+    </div>
+    <p class="wm-note">不想现在弄也没关系：${esc(nm)}第一次记住一件事的时候，会自动生成钥匙并提醒你。</p>
+    <div class="err" id="wm-err"></div>
+    <div class="row"><button class="chip" id="wm-later">以后再说</button><button class="chip" id="wm-have">我已经有钥匙了</button><span style="flex:1"></span><button class="chip on" id="wm-make">生成我的钥匙</button></div>`;
+  $('#wm-later').onclick = () => { wm.classList.remove('show'); try { sessionStorage.setItem('fmn-welcome-later', '1'); } catch { } };
+  $('#wm-have').onclick = () => { wm.classList.remove('show'); openKey(); };
+  $('#wm-make').onclick = async () => {
+    try {
+      const k = await api('api/key/create', { method: 'POST', body: {} });
+      S.key = k; await loadBrain();
+      $('#wm-body').innerHTML = `
+        <h4>钥匙做好啦 🔑</h4>
+        <p class="sub">它就在你的桌面上：</p>
+        <div class="wm-path">${esc(k.key_path)}</div>
+        <div class="wm-steps">
+          <div><i>✓</i><p><b>现在请做一件事：</b>把这个文件复制到 U 盘、网盘，或者发给自己的邮箱存着。</p></div>
+          <div><i>✓</i><p><b>不要改名字、不要挪位置</b>（想挪的话，挪完点右下角的小钥匙，把新位置填进去）。</p></div>
+          <div><i>✓</i><p><b>更保险：</b>点「拆成 3 片备份」，任意 2 片就能拼回钥匙，可以分别放在不同的地方。</p></div>
+        </div>
+        <div class="row"><button class="chip" id="wm-backup">拆成 3 片备份</button><span style="flex:1"></span><button class="chip on" id="wm-done">我存好了</button></div>`;
+      $('#wm-done').onclick = () => wm.classList.remove('show');
+      $('#wm-backup').onclick = () => { wm.classList.remove('show'); openKey(); setTimeout(() => $('#km-backup').click(), 200); };
+    } catch (e) { $('#wm-err').textContent = e.message; }
+  };
+  wm.classList.add('show');
+}
+function EMBED_SKIP_WELCOME() { try { return sessionStorage.getItem('fmn-welcome-later') === '1'; } catch { return false; } }
+
 $('#skip').onclick = finishIntro;
 renderer.domElement.addEventListener('dblclick', finishIntro);
 
@@ -1392,7 +1479,7 @@ function tick() {
   sky.mat.uniforms.uFade.value = S.mode === 'intro' ? sky.mat.uniforms.uFade.value : 1 - 0.6 * galaxyFade;
   if (S.view === 'brain') {
     // 太阳系公转；看卡片的时候放慢，方便看清
-    brain.update(reel.on ? dt * 0.25 : dt, time, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)), true, camera.position);
+    brain.update(reel.on ? dt * 0.25 : S.hoverPlanet && S.hoverPlanet !== 'sun' ? dt * 0.08 : dt, time, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)), true, camera.position);
     brain.stars.material.uniforms.uDim.value = stars.material.uniforms.uDim.value;
     // 脑图里的数据流：时不时有一颗光点从输入流向海马体，再流向某个脑区
     if (!swapping && Math.random() < dt * 0.5) {
