@@ -3,7 +3,7 @@
 //   （越靠外转得越慢，近似开普勒定律；轨道间距经过计算，保证任何时候都不会互相遮挡）。每段记忆是绕着自己脑区转的卫星；长期记忆库像土星，记忆排成一圈光环。
 //   线是「神经纤维」：两端亮、中间淡，光脉冲沿着它流动，跟着行星一起移动。
 import * as THREE from 'three';
-import { glowTexture, makeCore, makeStars } from './ring.js';
+import { makeCore, makeStars } from './ring.js';
 
 // 公转顺序（由内到外）和起始相位
 const ORDER = ['input', 'hippocampus', 'retrieval', 'metabolism', 'working', 'limbic', 'expression', 'social', 'life', 'introspect', 'visual', 'auditory', 'longterm'];
@@ -26,6 +26,18 @@ const SPEED = 0.55;    // 整体公转速度
 export const MIN_ELEV = 35 * Math.PI / 180;
 const SUN_R = 5.2, GAP = 1.4;
 const SIN = Math.sin(MIN_ELEV);
+
+// 行星用的柔光：没有刺眼的亮芯，只有一团慢慢散开的光晕
+let _soft;
+function softGlow() {
+  if (_soft) return _soft;
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  for (let i = 0; i <= 10; i++) { const t = i / 10; gr.addColorStop(t, `rgba(255,255,255,${(Math.exp(-t * t * 5) * (1 - t)).toFixed(3)})`); }
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  _soft = new THREE.CanvasTexture(c); _soft.colorSpace = THREE.SRGBColorSpace;
+  return _soft;
+}
 
 const hashf = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return ((h >>> 0) % 100000) / 100000; };
 
@@ -117,7 +129,7 @@ export function createBrainMap(scene) {
     obj.geometry.attributes.position.needsUpdate = true;
   }
 
-  let mems = [];
+  let mems = [], orbitByKey = {}, lit = null;
   const Y = new THREE.Vector3(0, 1, 0), ZERO = new THREE.Vector3();
   function placeAll() {
     for (const k of ORDER) orbitPos(k, clock, hubs[k]);
@@ -139,17 +151,18 @@ export function createBrainMap(scene) {
       radius[k] = r;
     });
     outer = r + extentOf.longterm;
-    orbitLines.clear();
+    orbitLines.clear(); orbitByKey = {};
     for (const k of ORDER) {
       const pts = [];
       for (let i = 0; i <= 200; i++) { const a = (i / 200) * Math.PI * 2; pts.push(new THREE.Vector3(radius[k] * Math.cos(a), 0, radius[k] * Math.sin(a))); }
-      orbitLines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({
-        color: col(k), transparent: true, opacity: PROCESS.has(k) ? 0.022 : 0.035, depthWrite: false, blending: THREE.AdditiveBlending })));
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({
+        color: col(k), transparent: true, opacity: PROCESS.has(k) ? 0.022 : 0.035, depthWrite: false, blending: THREE.AdditiveBlending }));
+      line.userData.base = line.material.opacity; orbitByKey[k] = line; orbitLines.add(line);
     }
     planets.clear();
     for (const k of ORDER) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: col(k), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
-      s.scale.setScalar(k === 'longterm' ? 4.4 : PROCESS.has(k) ? 2.2 : 2.8); planets.add(s); planetSprites[k] = s;
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlow(), color: col(k), transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending }));
+      s.scale.setScalar(k === 'longterm' ? 7 : PROCESS.has(k) ? 3.4 : 4.6); planets.add(s); planetSprites[k] = s;
     }
     const groups = {};
     for (const m of memories) (groups[m.region] ||= []).push(m);
@@ -202,7 +215,12 @@ export function createBrainMap(scene) {
   function update(dt, time, hiOf, running = true) {
     if (running) clock += dt;
     placeAll();
-    for (const [k, s] of Object.entries(planetSprites)) { s.position.copy(hubs[k]); s.material.opacity = 0.65 + 0.2 * Math.sin(time * 1.1 + PHASE[k]); }
+    for (const [k, s] of Object.entries(planetSprites)) {
+      s.position.copy(hubs[k]);
+      const on = k === lit ? 1 : 0;
+      s.material.opacity = 0.26 + 0.06 * Math.sin(time * 0.8 + PHASE[k]) + 0.14 * on;   // 慢慢呼吸的柔光
+    }
+    for (const [k, l] of Object.entries(orbitByKey)) l.material.opacity += ((k === lit ? 0.2 : l.userData.base) - l.material.opacity) * 0.08;
     const at = stars.geometry.attributes;
     for (const m of mems) if (m.bidx != null && m.bpos) { at.position.array.set([m.bpos.x, m.bpos.y, m.bpos.z], m.bidx * 3); at.aHi.array[m.bidx] = hiOf(m); }
     at.position.needsUpdate = at.aHi.needsUpdate = true;
@@ -211,5 +229,10 @@ export function createBrainMap(scene) {
     sun.set(1 + 0.08 * Math.sin(time * 1.2), time, 1);
   }
 
-  return { group, stars, layout, update, hub, extent: () => outer, sun };
+  return {
+    group, stars, layout, update, hub, extent: () => outer, sun,
+    keys: () => ORDER.filter(k => radius[k] != null),
+    sizeOf: k => extentOf[k] || 1,
+    highlight: k => { lit = k; },
+  };
 }

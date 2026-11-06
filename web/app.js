@@ -248,7 +248,7 @@ function updateLabels(dist) {
 function renderLegend() {
   const el = $('#legend');
   const mem = S.regions.filter(r => r.kind === 'memory'), proc = S.regions.filter(r => r.kind === 'process');
-  el.innerHTML = `<div class="head">TA 的回忆</div>` +
+  el.innerHTML = `<div class="head">${esc(personaName())} 的回忆</div>` +
     mem.map(r => `<button data-k="${r.key}" style="--c:${r.color}" class="${reel.on && reel.region === r.key ? 'on' : ''}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n">${r.count}</span></button>`).join('') +
     `<div class="sep"></div>` +
     proc.map(r => `<button class="proc" data-p="${r.key}" style="--c:${r.color}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n"></span></button>`).join('');
@@ -526,7 +526,7 @@ function onEscape() {
   if ([...document.querySelectorAll('.modal.show')].length) { document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show')); return; }
   if (EMBED) { parent.postMessage({ type: 'fmn:escape' }, location.origin); return; }
   // 独立页面：浏览器自己会用 Esc 退出全屏；不在全屏时，Esc 一层层往外退
-  if (reel.on) exitReel(); else if (S.view === 'brain') exitBrain();
+  if (reel.on) exitReel(); else if (S.follow) unfollow(); else if (S.view === 'brain') exitBrain();
 }
 $('#fsbtn').onclick = goFullscreen;
 if (!EMBED) addEventListener('pointerdown', function once() { removeEventListener('pointerdown', once); goFullscreen(); });
@@ -573,12 +573,13 @@ function enterBrain() {
   flash(420, () => {
     setView('brain');
     camera.position.set(0, 2, 6); controls.target.set(0, 0, 0); camera.lookAt(0, 0, 0);
-    flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 2.2, { warp: true, done: () => { swapping = false; S.idleAt = performance.now(); } });
+    flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 2.2, { warp: true, done: () => { swapping = false; S.idleAt = performance.now(); showGuide(); } });
   });
 }
 function exitBrain() {
   if (swapping || S.view !== 'brain') return; swapping = true;
   if (reel.on) exitReel();
+  unfollow(); $('#guide').classList.remove('show');
   flyTo(BRAIN_HOME.pos.clone().multiplyScalar(1.9), BRAIN_HOME.target, 0.9, { warp: true });
   flash(520, () => {
     flight = null; setView('ring');
@@ -589,10 +590,14 @@ function exitBrain() {
 
 // ------------------------------------------------------------------ 人设卡（太阳 · 心核）+ 性格养成
 const personaName = () => (S.persona?.profile?.name || 'TA').trim() || 'TA';
+/** 代词随人设卡里的性别变：女→她，男→他，没写→TA */
+const pronoun = () => { const g = String(S.persona?.profile?.gender || ''); return /女|female|woman|girl|^f$/i.test(g) ? '她' : /男|male|man|boy|^m$/i.test(g) ? '他' : 'TA'; };
 function renderTitle() {
   const v = S.view, n = esc(personaName());
   $('#title').innerHTML = v === 'brain' ? `${n}的回忆<small>· 脑图</small>` : '勿忘我<small>Forget-me-not</small>';
-  $('#poem').textContent = v === 'brain' ? `像太阳系一样：每个脑区是一颗绕着「心核 · ${personaName()}」公转的行星，记忆是它的卫星` : '把她留在时间里的痕迹，延长得再久一些';
+  $('#poem').textContent = v === 'brain' ? `像太阳系一样：每个脑区是一颗绕着「心核 · ${personaName()}」公转的行星，记忆是它的卫星` : `把${pronoun()}留在时间里的痕迹，延长得再久一些`;
+  const line = document.querySelector('#intro .line'); if (line) line.textContent = `${pronoun()}会想起，也会遗忘`;
+  document.title = `勿忘我 · ${personaName() === 'TA' ? '记忆星环' : personaName() + '的记忆'}`;
 }
 function renderPersona() {
   const el = $('#persona');
@@ -632,7 +637,7 @@ function focusSun() {
 
 // 编辑 / 导入人设卡
 const pModal = $('#personamodal');
-const PF = ['name', 'title', 'description', 'personality', 'speaking_style', 'scenario', 'first_mes'];
+const PF = ['name', 'gender', 'title', 'description', 'personality', 'speaking_style', 'scenario', 'first_mes'];
 let pfAvatar = null;
 function openPersonaEditor(prefill) {
   if (!S.key.unlocked) { openKey(); return; }
@@ -702,6 +707,26 @@ addEventListener('drop', e => {
   if (!f) return; e.preventDefault(); importCard(f);
 });
 
+// ------------------------------------------------------------------ 跟随一颗行星公转
+function followPlanet(k) {
+  const has = S.memories.some(m => m.region === k);
+  if (has) { S.follow = null; openRegion(k); return; }       // 有记忆：跟着它放映走马灯
+  if (reel.on) exitReel();
+  S.follow = k; controls.autoRotate = false; $('#rot').classList.remove('on');
+  const h = brain.hub(k), off = new THREE.Vector3(0, 9, 14);
+  flyTo(h.clone().add(off), h, 1.4, { warp: false, done: () => { S.followOff = off.clone(); } });
+  toast(`<b>${esc(S.regionBy[k].name)}</b>${esc(S.regionBy[k].desc)}　（点空白处离开）`, S.regionBy[k].color);
+}
+function unfollow() { S.follow = null; S.followOff = null; }
+
+// 刚进入星河时的小提示
+let guideTimer;
+function showGuide() {
+  const g = $('#guide');
+  g.innerHTML = `<span>点太阳 · 看${esc(personaName())}的人设卡</span><i>·</i><span>点行星 · 跟着它公转</span><i>·</i><span>点星光 · 联想放映</span><i>·</i><span>拉远 · 回到星环</span>`;
+  g.classList.add('show'); clearTimeout(guideTimer); guideTimer = setTimeout(() => g.classList.remove('show'), 7000);
+}
+
 function openRegion(key) {
   if (S.mode === 'intro') return;
   startReel(key, null, { cinematic: true });
@@ -717,8 +742,9 @@ renderer.domElement.addEventListener('pointerup', e => {
   const d = mouse.down; mouse.down = null;
   if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || S.mode === 'intro') return;
   if (S.view === 'brain' && !S.hover) {
-    const p = project(new THREE.Vector3(), {});
-    if (p.vis && Math.hypot(p.x - e.clientX, p.y - e.clientY) < 40) focusSun();
+    if (S.hoverPlanet === 'sun') focusSun();
+    else if (S.hoverPlanet) followPlanet(S.hoverPlanet);
+    else if (S.follow) unfollow();
     return;
   }
   if (!S.hover) return;
@@ -735,7 +761,30 @@ function pick() {
     const d = (tmp.x - mouse.x) ** 2 + (tmp.y - mouse.y) ** 2;
     if (d < bd) { bd = d; best = m; }
   }
+  // 脑图里：行星和太阳也能指
+  S.hoverPlanet = null;
+  if (S.view === 'brain' && !best) {
+    let pd = 1e9;
+    for (const k of brain.keys()) {
+      project(brain.hub(k), tmp); if (!tmp.vis) continue;
+      const d = Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y), r = 16 + brain.sizeOf(k) * 120 / Math.max(20, camera.position.distanceTo(brain.hub(k)));
+      if (d < r && d < pd) { pd = d; S.hoverPlanet = k; }
+    }
+    project(new THREE.Vector3(), tmp);
+    if (!S.hoverPlanet && tmp.vis && Math.hypot(tmp.x - mouse.x, tmp.y - mouse.y) < 34) S.hoverPlanet = 'sun';
+  }
+  brain.highlight(S.hoverPlanet && S.hoverPlanet !== 'sun' ? S.hoverPlanet : S.follow || (reel.on && S.view === 'brain' ? reel.region : null));
   S.hover = best;
+  if (!best && S.hoverPlanet) {
+    const k = S.hoverPlanet, r = S.regionBy[k];
+    const n = S.memories.filter(m => m.region === k).length;
+    tip.style.setProperty('--c', k === 'sun' ? '#cfe0ff' : r.color);
+    tip.innerHTML = k === 'sun' ? `<b>心核 · ${esc(personaName())}</b><br>点一下，看${pronoun()}的人设卡`
+      : `<b>${esc(r.name)}</b> · ${r.kind === 'process' ? '大脑器官' : `${n} 段记忆`}<br>${n ? '点一下，跟着它公转，放映里面的记忆' : esc(r.desc)}`;
+    tip.style.left = mouse.x + 'px'; tip.style.top = mouse.y + 'px';
+    tip.classList.add('show'); renderer.domElement.style.cursor = 'pointer';
+    return;
+  }
   if (best) {
     const r = S.regionBy[best.region];
     tip.style.setProperty('--c', r.color);
@@ -761,7 +810,7 @@ function autoReel(dist) {
   const now = performance.now();
   // 多级缩放：钻进星核 → 脑图；在脑图里拉得很远 → 回到星环
   if (S.view === 'ring' && !reel.on && camera.position.length() < 4.2) { enterBrain(); return; }
-  if (S.view === 'brain') { if (!reel.on && dist > brain.extent() * 3.6) exitBrain(); else if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) { reel.follow = true; reel.t = 0; } return; }
+  if (S.view === 'brain') { if (!reel.on && !S.follow && dist > brain.extent() * 3.6) exitBrain(); else if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) { reel.follow = true; reel.t = 0; } return; }
   if (reel.on && !reel.follow && dist > REEL_DIST * 1.9 && now - S.idleAt > 300) { exitReel(); return; }
   if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) {
     // 停下来不动一会儿 → 从视野中心最近的那颗星继续放映
@@ -801,7 +850,7 @@ function updateZoomUI(dist) {
 }
 
 $('#rot').onclick = e => { controls.autoRotate = !controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); };
-$('#reset').onclick = () => { exitReel(); if (S.view === 'brain') flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 1.8); else flyTo(HOME.pos, HOME.target, 2.2); };
+$('#reset').onclick = () => { exitReel(); unfollow(); if (S.view === 'brain') flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 1.8); else flyTo(HOME.pos, HOME.target, 2.2); };
 $('#brainbtn').onclick = () => { if (S.view === 'brain') exitBrain(); else { exitReel(); flyTo(new THREE.Vector3(0.6, 0.6, 3), new THREE.Vector3(0, 0, 0), 2.0, { done: enterBrain }); } };
 
 const hintEl = $('#enter');
@@ -1089,6 +1138,12 @@ function tick() {
       if (reel.playing) { reel.t += dt; if (reel.t >= reel.dur) reelGo(1); }
       $('#prog').style.width = (clamp(reel.t / reel.dur, 0, 1) * 100).toFixed(1) + '%';
     }
+  }
+  if (S.follow && S.followOff && !flight && !reel.on && S.view === 'brain') {
+    // 镜头跟着行星一起公转（保持相对位置，用户拖动时更新相对位置）
+    const h = brain.hub(S.follow), k = 1 - Math.exp(-dt * 3);
+    if (S.interacting) S.followOff.copy(camera.position).sub(controls.target);
+    controls.target.lerp(h, k); camera.position.lerp(h.clone().add(S.followOff), k);
   }
   if (!flight && S.mode !== 'intro') { controls.enabled = true; controls.update(); }
 

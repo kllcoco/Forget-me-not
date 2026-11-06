@@ -272,6 +272,15 @@ body.brain.reel #persona { opacity: 0; pointer-events: none; }
 #persona li .up { color: #7ee08a; } #persona li .down { color: #ff8fa6; }
 #persona .locked { font-size: 12.5px; color: var(--muted); line-height: 1.8; margin-top: 8px; }
 
+/* 进入星河后的小提示 */
+#guide { left: 50%; bottom: 92px; transform: translate(-50%, 10px); display: flex; gap: 12px; align-items: center; padding: 10px 20px; border-radius: 999px;
+  background: rgba(10, 16, 32, .42); border: 1px solid var(--line); backdrop-filter: blur(12px); font-size: 12.5px; letter-spacing: .14em; color: var(--ink-2);
+  opacity: 0; pointer-events: none; white-space: nowrap; transition: opacity 1s var(--ease), transform 1s var(--ease); }
+#guide.show { opacity: 1; transform: translate(-50%, 0); }
+#guide i { font-style: normal; opacity: .35; }
+body.reel #guide { opacity: 0; }
+@media (max-width: 760px) { #guide { flex-wrap: wrap; justify-content: center; white-space: normal; width: calc(100vw - 32px); border-radius: 18px; bottom: 120px; } }
+
 /* 人设卡 */
 #persona .card-head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; cursor: pointer; }
 #persona .av { flex: none; width: 58px; height: 58px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, #cfe0ff 30%, #4f78ff 75%, #1a2350);

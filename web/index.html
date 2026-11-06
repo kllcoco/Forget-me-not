@@ -90,6 +90,7 @@
 </div>
 
 <div id="tooltip"></div>
+<div id="guide" class="ui"></div>
 
 <div class="modal" id="keymodal">
   <div class="panel">
@@ -127,7 +128,8 @@
     <div class="pform">
       <label class="avatar" id="pf-avatar-box" title="点击换头像"><img id="pf-avatar-img" alt=""><input type="file" id="pf-avatar" accept="image/*" hidden></label>
       <div class="pcol">
-        <input id="pf-name" placeholder="名字" maxlength="40">
+        <div style="display:flex;gap:8px"><input id="pf-name" placeholder="名字（界面上的 TA 会变成这个名字）" maxlength="40" style="flex:1">
+          <input id="pf-gender" placeholder="性别" maxlength="20" list="pf-genders" style="width:96px"><datalist id="pf-genders"><option value="女"><option value="男"><option value="不设定"></datalist></div>
         <input id="pf-title" placeholder="一句话身份，比如：会写诗的仿生人">
       </div>
       <textarea id="pf-description" placeholder="人设与外貌"></textarea>
