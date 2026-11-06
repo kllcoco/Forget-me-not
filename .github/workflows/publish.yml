@@ -31,5 +31,10 @@ jobs:
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "$NAME@$VERSION 已经发布过了，跳过"
           else
-            npm publish --provenance --access public
+            # 来源证明（provenance）只支持公开仓库；私有仓库就不带它
+            if [ "${{ github.event.repository.private }}" = "true" ]; then
+              npm publish --access public
+            else
+              npm publish --provenance --access public
+            fi
           fi
