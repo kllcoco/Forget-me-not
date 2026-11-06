@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>勿忘我 · 记忆星环</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Noto+Serif+SC:wght@300;400;600&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="static/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "./static/vendor/three/build/three.module.min.js",
+  "three/addons/": "./static/vendor/three/addons/"
+} }
+</script>
+</head>
+<body class="intro">
+<div id="stage"></div>
+<div class="vignette"></div>
+<div class="grain"></div>
+<div id="labels"></div>
+<svg id="wires"></svg>
+<div class="letterbox top"></div>
+<div class="letterbox bottom"></div>
+<div id="whiteout"></div>
+
+<div id="intro">
+  <div class="t">
+    <h2>勿忘我</h2>
+    <div class="en">forget · me · not</div>
+    <div class="line">她会想起，也会遗忘</div>
+  </div>
+  <button class="skip" id="skip">跳过 ›</button>
+</div>
+
+<header id="brand" class="ui hide-in-reel">
+  <h1>勿忘我<small>Forget-me-not</small></h1>
+  <p class="poem">把她留在时间里的痕迹，延长得再久一些</p>
+  <div class="stats" id="stats"></div>
+</header>
+
+<nav id="legend" class="ui hide-in-reel"></nav>
+
+<div id="search" class="ui">
+  <div class="box">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".6"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" placeholder="想起……" autocomplete="off">
+  </div>
+  <div class="results" id="results"></div>
+</div>
+
+<div id="zoom" class="ui hide-in-reel">
+  <button id="zin" title="放大">+</button>
+  <div class="track" id="ztrack"><div class="fill"></div><div class="knob"></div></div>
+  <button id="zout" title="缩小">−</button>
+  <div class="lbl">缩放</div>
+</div>
+
+<div id="toolbar" class="ui hide-in-reel">
+  <button class="chip on" id="rot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>自动旋转</button>
+  <button class="chip" id="reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>重置视角</button>
+  <button class="chip" id="lockbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>封存中</span></button>
+  <button class="chip" id="connect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 15 15 9M10 6l1-1a5 5 0 0 1 7 7l-1 1M14 18l-1 1a5 5 0 0 1-7-7l1-1"/></svg>接入</button>
+</div>
+
+<button id="enter" class="ui">进入记忆</button>
+
+<div id="feed" class="ui"></div>
+
+<div id="card"><div class="frame"></div></div>
+
+<div id="reelbar" class="ui">
+  <div class="title" id="reeltitle"></div>
+  <div id="strip"><div class="rail"></div></div>
+  <div class="ctrl">
+    <button id="prev" title="上一段"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h2v14H7zM20 5v14L10 12z"/></svg></button>
+    <button id="play" class="main" title="暂停 / 播放"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></button>
+    <button id="next" title="下一段"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 5h2v14h-2zM4 5v14l10-7z"/></svg></button>
+    <div class="progress"><i id="prog"></i></div>
+    <button id="exit" class="exit">离开 ✕</button>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<div class="modal" id="lockmodal">
+  <div class="panel">
+    <h4 id="lk-title">超级管理员</h4>
+    <p class="sub" id="lk-sub">记忆已被封存。输入超级管理员密码，才能打开它们。</p>
+    <input type="password" id="lk-pass" placeholder="密码" autocomplete="current-password">
+    <input type="password" id="lk-pass2" placeholder="再输入一次" autocomplete="new-password" style="display:none">
+    <div class="warn" id="lk-warn" style="display:none">记忆会用这个密码加密保存。忘记密码，就再也打不开它们了，连 AI 自己也不行。</div>
+    <div class="err" id="lk-err"></div>
+    <div class="row">
+      <button class="chip" id="lk-cancel">取消</button>
+      <button class="chip on" id="lk-ok">解封</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="editmodal">
+  <div class="panel">
+    <h4>修改记忆</h4>
+    <p class="sub">只有超级管理员可以修改已经封存的记忆。</p>
+    <textarea id="ed-text"></textarea>
+    <div class="err" id="ed-err"></div>
+    <div class="row">
+      <button class="chip" id="ed-cancel">取消</button>
+      <button class="chip on" id="ed-ok">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="connmodal">
+  <div class="panel" style="width:min(560px,94vw)">
+    <h4>接入任何 AI</h4>
+    <p class="sub">AI 只能「写入新记忆」和「回想」。写进去的记忆会被封存，谁都不能改、不能删，包括 AI 自己。</p>
+    <div id="conn-body"></div>
+    <div class="row"><button class="chip on" id="conn-ok">好</button></div>
+  </div>
+</div>
+
+<script type="module" src="static/app.js"></script>
+</body>
+</html>

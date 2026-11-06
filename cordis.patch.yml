@@ -1,0 +1,4 @@
+# 把「勿忘我」挂进 dsh 的插件树。用包的裸名，这样浏览器端（左侧栏「记忆」）才会一起加载。
+- insert:
+    - id: forget-me-not
+      name: forget-me-not
