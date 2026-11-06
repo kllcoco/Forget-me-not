@@ -357,7 +357,7 @@ function flyTo(pos, target, dur = 2.4, { warp = true, cinema = false, straight =
   const dir = new THREE.Vector3().subVectors(pos, target).normalize();
   const c1 = straight ? p0.clone().lerp(pos, 1 / 3) : p0.clone().lerp(target, 0.15).add(new THREE.Vector3(0, 3, 0));
   const c2 = straight ? p0.clone().lerp(pos, 2 / 3) : pos.clone().addScaledVector(dir, 5).add(new THREE.Vector3(0, 2.5, 0));
-  flight = { p0, c1, c2, p1: pos.clone(), t0, t1: target.clone(), dur, k: 0, warp, done, easing, white };
+  flight = { p0, c1, c2, p1: pos.clone(), t0, t1: target.clone(), dur, k: 0, warp, done, easing, white, cinema };
   if (cinema) document.body.classList.add('cinema');
   controls.enabled = false;
 }
@@ -417,7 +417,7 @@ function startChain(m) {
   S.mode = 'reel'; document.body.classList.add('reel', 'cinema');
   controls.autoRotate = false; $('#rot').classList.remove('on');
   card.classList.remove('show');
-  flyTo(camFor(m), tgtOf(m), 1.4, { cinema: true, warp: false, done: () => { reel.follow = true; showCard(true); } });
+  flyTo(camFor(m), tgtOf(m), 1.4, { cinema: true, warp: false, done: () => { if (!reel.on) return; reel.follow = true; showCard(true); } });
   setReelTitle(); renderStrip(); updatePlayIcon();
 }
 
@@ -440,7 +440,7 @@ function startReel(region, startId, { cinematic = true } = {}) {
   controls.autoRotate = false; $('#rot').classList.remove('on');
   renderLegend();
   const m = reel.list[reel.i];
-  const go = () => { reel.follow = true; showCard(true); };
+  const go = () => { if (!reel.on) return; reel.follow = true; showCard(true); };
   if (cinematic) { card.classList.remove('show'); flyTo(camFor(m), tgtOf(m), S.view === 'brain' ? 1.6 : 2.6, { cinema: true, done: go }); }
   else go();
   setReelTitle(); renderStrip(); updatePlayIcon();
@@ -451,6 +451,7 @@ function exitReel() {
   reel.on = false; reel.follow = false; S.mode = 'explore';
   document.body.classList.remove('reel', 'cinema');
   card.classList.remove('show'); wires.innerHTML = '';
+  if (flight?.cinema) { flight = null; camera.fov = 45; camera.updateProjectionMatrix(); bloom.strength = 0.9; }   // 还在飞向记忆的半路：停下这段飞行（它结束时会再弹出卡片）
   renderLegend();
   const d = camera.position.distanceTo(controls.target);
   if (S.view === 'ring' && d < 14) flyTo(HOME.pos, HOME.target, 2.4);
@@ -542,6 +543,7 @@ function assocHTML(m) {
 }
 
 function showCard(swap) {
+  if (!reel.on) { card.classList.remove('show'); return; }   // 已经退出走马灯（比如镜头还在飞的时候就退出了），不要再把卡片弹出来
   const m = reel.list[reel.i]; if (!m) return;
   card.innerHTML = cardHTML(m);
   card.classList.add('show');
