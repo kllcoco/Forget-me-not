@@ -7,7 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { A, TAU, MAX_REGIONS, frame, makeCore, makeDust, makeFx, makeSky, makeStars, ringPos } from './ring.js';
 import { paint, paintSealed } from './painter.js';
-import { createBrainMap, hubPos } from './brainmap.js';
+import { createBrainMap } from './brainmap.js';
 import { createMusic } from './music.js';
 import { createGalaxy } from './galaxy.js';
 
@@ -207,8 +207,14 @@ function buildLabels() {
     const bel = el.cloneNode(true); bel.classList.remove('organ'); bel.classList.add('big');
     bel.onclick = () => openRegion(r.key);
     labelsEl.appendChild(bel);
-    labelEls.push({ el: bel, anchor: hubPos(r.key).add(new THREE.Vector3(0, r.key === 'longterm' ? 3.2 : 2.6, 0)), region: r, view: 'brain' });
+    const lift = new THREE.Vector3(0, r.key === 'longterm' ? 4.6 : r.kind === 'process' ? 1.6 : 2.8, 0);
+    labelEls.push({ el: bel, anchor: () => brain.hub(r.key).add(lift), region: r, view: 'brain' });
   }
+  // 太阳：心核 · TA
+  const sun = document.createElement('div'); sun.className = 'rlabel big sun'; sun.style.setProperty('--c', '#cfe0ff');
+  sun.innerHTML = '<span class="zh">心核 · TA</span><span class="en">THE SELF</span>';
+  labelsEl.appendChild(sun);
+  labelEls.push({ el: sun, anchor: new THREE.Vector3(0, 4.2, 0), region: { key: 'sun', kind: 'memory' }, view: 'brain' });
 }
 
 const _v = new THREE.Vector3();
@@ -223,13 +229,14 @@ function updateLabels(dist) {
   const tmp = {};
   for (const L of labelEls) {
     if (L.view !== S.view) { L.el.style.opacity = '0'; L.el.style.pointerEvents = 'none'; continue; }
-    project(L.anchor, tmp);
-    const d = camera.position.distanceTo(L.anchor);
-    let o = L.view === 'brain' ? smooth(2, 8, d) * (L.region.kind === 'process' ? 0.8 : 1)
+    const anc = typeof L.anchor === 'function' ? L.anchor() : L.anchor;
+    project(anc, tmp);
+    const d = camera.position.distanceTo(anc);
+    let o = L.view === 'brain' ? smooth(2, 8, d) * smooth(170, 90, d) * (L.region.kind === 'process' ? 0.75 : 1)
       : L.region.kind === 'process' ? smooth(30, 12, dist) * 0.85 : base * smooth(1.5, 5, d);
     if (reel.on) o *= L.region.key === reel.region ? 1 : 0.12;
     if (!tmp.vis) o = 0;
-    const sc = clamp((L.view === 'brain' ? 46 : 26) / d, 0.55, 1.5);
+    const sc = clamp((L.view === 'brain' ? 85 : 26) / d, 0.55, 1.5);
     L.el.style.opacity = o.toFixed(3);
     L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, -50%) scale(${sc.toFixed(3)})`;
     L.el.style.pointerEvents = o > 0.3 ? 'auto' : 'none';
@@ -246,7 +253,7 @@ function renderLegend() {
     proc.map(r => `<button class="proc" data-p="${r.key}" style="--c:${r.color}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n"></span></button>`).join('');
   el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => openRegion(b.dataset.k));
   el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
-    if (S.view === 'brain') { const h = hubPos(b.dataset.p); flyTo(h.clone().add(new THREE.Vector3(4, 3, 16)), h, 1.8); }
+    if (S.view === 'brain') { const h = brain.hub(b.dataset.p); flyTo(h.clone().add(new THREE.Vector3(4, 6, 20)), h, 1.8); }
     else flyTo(ORGAN_POS[b.dataset.p].clone().add(new THREE.Vector3(6, 3, 8)), ORGAN_POS[b.dataset.p], 2.2);
   });
 }
@@ -524,14 +531,16 @@ if (!EMBED) addEventListener('pointerdown', function once() { removeEventListene
 addEventListener('message', e => { if (e.origin === location.origin && e.data?.type === 'fmn:fullscreen-state') document.body.classList.toggle('full', !!e.data.full); });
 
 // ------------------------------------------------------------------ 多级缩放：星环 ⇄ 脑图
-const BRAIN_HOME = { pos: new THREE.Vector3(0, 8, 64), target: new THREE.Vector3(3, -1, 0) };
+const BRAIN_HOME = NARROW
+  ? { pos: new THREE.Vector3(0, 130, 175), target: new THREE.Vector3(0, -2, 0) }
+  : { pos: new THREE.Vector3(-4, 62, 118), target: new THREE.Vector3(8, -6, 0) };
 let swapping = false;
 function setView(v) {
   S.view = v;
   for (const o of ringObjs) o.visible = v === 'ring';
   // 莫比乌斯环不丢：在脑图里，它变成环绕整个大脑的一圈星河
   dust.visible = true;
-  dust.scale.setScalar(v === 'brain' ? 3.3 : 1);
+  dust.scale.setScalar(v === 'brain' ? 6.2 : 1);
   dust.rotation.set(v === 'brain' ? -0.32 : 0, 0, v === 'brain' ? 0.06 : 0);
   dust.position.set(v === 'brain' ? 3 : 0, v === 'brain' ? -2 : 0, 0);
   if (organs) organs.visible = v === 'ring';
@@ -539,8 +548,8 @@ function setView(v) {
   document.body.classList.toggle('brain', v === 'brain');
   $('#brainbtn').classList.toggle('on', v === 'brain');
   $('#title').innerHTML = v === 'brain' ? 'TA的回忆<small>· 脑图</small>' : '勿忘我<small>Forget-me-not</small>';
-  $('#poem').textContent = v === 'brain' ? '多层记忆架构：每一团星是一个脑区，线是记忆之间的关联与数据流' : '把她留在时间里的痕迹，延长得再久一些';
-  controls.maxDistance = v === 'brain' ? 140 : 110;
+  $('#poem').textContent = v === 'brain' ? '像太阳系一样：每个脑区是一颗绕着「心核 · TA」公转的行星，记忆是它的卫星' : '把她留在时间里的痕迹，延长得再久一些';
+  controls.maxDistance = v === 'brain' ? 230 : 110;
   renderLegend();
 }
 function flash(peakAt, fn) {
@@ -560,7 +569,7 @@ function enterBrain() {
 function exitBrain() {
   if (swapping || S.view !== 'brain') return; swapping = true;
   if (reel.on) exitReel();
-  flyTo(new THREE.Vector3(0, 4, 150), BRAIN_HOME.target, 0.9, { warp: true });
+  flyTo(new THREE.Vector3(0, 30, 240), BRAIN_HOME.target, 0.9, { warp: true });
   flash(520, () => {
     flight = null; setView('ring');
     camera.position.set(0.5, 0.5, 2.6); controls.target.set(0, 0, 0); camera.lookAt(0, 0, 0);
@@ -643,7 +652,7 @@ function autoReel(dist) {
   const now = performance.now();
   // 多级缩放：钻进星核 → 脑图；在脑图里拉得很远 → 回到星环
   if (S.view === 'ring' && !reel.on && camera.position.length() < 4.2) { enterBrain(); return; }
-  if (S.view === 'brain') { if (!reel.on && dist > 92) exitBrain(); else if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) { reel.follow = true; reel.t = 0; } return; }
+  if (S.view === 'brain') { if (!reel.on && dist > 200) exitBrain(); else if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) { reel.follow = true; reel.t = 0; } return; }
   if (reel.on && !reel.follow && dist > REEL_DIST * 1.9 && now - S.idleAt > 300) { exitReel(); return; }
   if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) {
     // 停下来不动一会儿 → 从视野中心最近的那颗星继续放映
@@ -722,7 +731,7 @@ function burst(p, color, n = 40, speed = 2) {
 }
 let corePulse = 0;
 
-const organ = k => S.view === 'brain' ? hubPos(k) : ORGAN_POS[k];
+const organ = k => S.view === 'brain' ? brain.hub(k) : ORGAN_POS[k];
 function playEvent(ev) {
   const reg = S.regionBy;
   const mems = ev.memory_ids.map(id => S.byId.get(id)).filter(Boolean);
@@ -999,12 +1008,13 @@ function tick() {
   galaxy.update(time, galaxyFade);
   sky.mat.uniforms.uFade.value = S.mode === 'intro' ? sky.mat.uniforms.uFade.value : 1 - 0.6 * galaxyFade;
   if (S.view === 'brain') {
-    brain.update(time, S.memories, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)));
+    // 太阳系公转；看卡片的时候放慢，方便看清
+    brain.update(reel.on ? dt * 0.25 : dt, time, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)));
     brain.stars.material.uniforms.uDim.value = stars.material.uniforms.uDim.value;
     // 脑图里的数据流：时不时有一颗光点从输入流向海马体，再流向某个脑区
     if (!swapping && Math.random() < dt * 0.5) {
       const keys = Object.keys(S.arcs); const k = keys[Math.floor(Math.random() * keys.length)];
-      if (k) comet(hubPos('input'), hubPos('hippocampus'), S.regionBy.input.color, { dur: 1.2, lift: 1, trail: true, onArrive: () => comet(hubPos('hippocampus'), hubPos(k), S.regionBy[k].color, { dur: 1.4, lift: 1.5 }) });
+      if (k) comet(brain.hub('input'), brain.hub('hippocampus'), S.regionBy.input.color, { dur: 1.2, lift: 1, trail: true, onArrive: () => comet(brain.hub('hippocampus'), brain.hub(k), S.regionBy[k].color, { dur: 1.4, lift: 1.5 }) });
     }
   }
   fx.update(dt);

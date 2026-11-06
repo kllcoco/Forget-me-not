@@ -278,6 +278,7 @@ body.brain.reel #persona { opacity: 0; pointer-events: none; }
 #card .assoc button:hover { border-style: solid; color: var(--ink); }
 #card .left { color: var(--muted); }
 
+#labels .rlabel.sun .zh { font-family: var(--serif); font-weight: 300; font-size: 26px; letter-spacing: .4em; }
 body.brain #brand h1 { font-family: var(--serif); font-weight: 300; letter-spacing: .24em; }
 body.brain #enter, body.reel #enter { opacity: 0; pointer-events: none; }
 #toolbar .chip.on#brainbtn { color: #0a0e1a; }
