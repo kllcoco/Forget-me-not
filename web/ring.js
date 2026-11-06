@@ -122,8 +122,10 @@ export function makeDust(count = 26000) {
         }
         float tw = 0.65 + 0.35 * sin(uTime * (1.2 + aPhase * 2.4) + aPhase * 40.0);
         vColor = col * (1.0 + head * 3.0);
-        vAlpha = tw * (aHalo > 0.5 ? 0.45 : 1.0) * mix(0.15, 1.0, appear) * uBright;
-        gl_PointSize = clamp(aSize * (1.0 + head * 2.5 + uWarp * 1.5) * uPixel * (52.0 / -mv.z), 0.0, 48.0);
+        // 离镜头很近的星尘淡出、也别太大：不然镜头钻进星带时，一堆放大的淡光点会叠成一层灰雾
+        float nearFade = smoothstep(0.8, 4.0, -mv.z);
+        vAlpha = tw * (aHalo > 0.5 ? 0.45 : 1.0) * mix(0.15, 1.0, appear) * uBright * nearFade;
+        gl_PointSize = clamp(aSize * (1.0 + head * 2.5 + uWarp * 1.5) * uPixel * (52.0 / -mv.z), 0.0, 22.0);
       }`,
     fragmentShader: /* glsl */`
       varying vec3 vColor; varying float vAlpha;

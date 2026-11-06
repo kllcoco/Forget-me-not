@@ -5,6 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { A, TAU, MAX_REGIONS, frame, makeCore, makeDust, makeFx, makeSky, makeStars, ringPos } from './ring.js';
 import { paint, paintSealed } from './painter.js';
 import { createBrainMap, MIN_ELEV } from './brainmap.js';
@@ -57,7 +58,24 @@ controls.autoRotateSpeed = 0.35; controls.enabled = false;
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.1, 0.75, 0.08);
+// 限亮：泛光的模糊只能往外扩散有限的距离，太亮的点会被它「切」成方块。
+// 所以在泛光之前，把超过上限的亮度柔和地压下来（软膝），光晕就永远是圆的。
+const limiter = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uMax: { value: 1.5 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uMax; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = max(max(c.r, c.g), c.b), knee = uMax * 0.5;
+      if (l > knee) { float over = l - knee; c.rgb *= (knee + over / (1.0 + over / knee)) / l; }
+      gl_FragColor = c;
+    }`,
+});
+composer.addPass(limiter);
+// 泛光分 5 层，越往后分辨率越低（最后一层只有 1/32）。小亮点在低分辨率层里只占一个像素，
+// 放大回来就成了方块——所以只用前几层清晰的，最后一层关掉；星星本身已经有圆形光晕了。
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.0, 0.2);
+bloom.compositeMaterial.uniforms.bloomFactors.value = [0.45, 0.32, 0.2, 0.08, 0.0];
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -292,10 +310,10 @@ function stepFlight(dt) {
   controls.target.lerpVectors(f.t0, f.t1, ease(Math.min(1, f.k * 1.15)));
   const w = f.warp ? Math.sin(Math.PI * f.k) : 0;
   camera.fov = 45 + 16 * w; camera.updateProjectionMatrix();
-  bloom.strength = 1.1 + 0.9 * w; dust.material.uniforms.uWarp.value = w;
+  bloom.strength = 0.9 + 0.8 * w; dust.material.uniforms.uWarp.value = w;
   camera.lookAt(controls.target);
   if (f.k >= 1) {
-    flight = null; controls.enabled = S.mode !== 'intro'; camera.fov = 45; camera.updateProjectionMatrix(); bloom.strength = 1.1;
+    flight = null; controls.enabled = S.mode !== 'intro'; camera.fov = 45; camera.updateProjectionMatrix(); bloom.strength = 0.9;
     f.done && f.done();
   }
 }
@@ -1102,6 +1120,7 @@ function finishIntro() {
 }
 function endIntro() {
   S.mode = 'explore';
+  $('#whiteout').style.opacity = '0';   // 跳过开场时，白光可能正停在半亮的那一帧，不清掉会一直留一层灰雾
   introEl.classList.remove('on'); introEl.classList.add('off');
   document.body.classList.remove('intro');
   dust.material.uniforms.uReveal.value = 1; stars.material.uniforms.uReveal.value = 1;
@@ -1128,7 +1147,7 @@ function stepIntro(dt) {
   camera.position.set(r * Math.cos(el) * Math.sin(az), r * Math.sin(el), r * Math.cos(el) * Math.cos(az));
   controls.target.lerpVectors(new THREE.Vector3(), HOME.target, k);
   camera.lookAt(controls.target);
-  bloom.strength = 1.1 + 0.5 * Math.exp(-((t - 1.2) ** 2) * 4);
+  bloom.strength = 0.9 + 0.5 * Math.exp(-((t - 1.2) ** 2) * 4);
   if (t > 2.6 && !introEl.classList.contains('on') && !introEl.classList.contains('off')) introEl.classList.add('on');
   if (t > 5.8 && introEl.classList.contains('on')) { introEl.classList.remove('on'); introEl.classList.add('off'); }
   if (t >= INTRO) endIntro();
@@ -1214,7 +1233,7 @@ function tick() {
 }
 
 // 调试：地址里带 ?debug 时，把内部状态挂到 window 上（自动化测试用）
-if (new URLSearchParams(location.search).has('debug')) window.__fmn = { S, brain, camera, project, mouse };
+if (new URLSearchParams(location.search).has('debug')) window.__fmn = { S, brain, camera, project, mouse, core, dust, stars, sky, galaxy, scene, bloom, limiter };
 
 // ------------------------------------------------------------------ 启动
 (async function boot() {
