@@ -462,3 +462,21 @@ body:has(#planetpanel.show) #persona { opacity: 0; pointer-events: none; }
 body.reel #credit, body.intro #credit { opacity: 0; pointer-events: none; }
 /* 脑图里右边有人设卡 / 行星小窗，缩放条挪到它们左边 */
 body.brain #zoom { right: 346px; }
+
+/* ---------- 心核：拖角色卡 ---------- */
+.cm-card { display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: center; padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); margin-bottom: 12px; }
+.cm-card img, .cm-card .ini { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; background: rgba(207,224,255,.12); font-size: 22px; color: #e8efff; }
+.cm-card b { font-weight: 500; font-size: 15px; letter-spacing: .1em; } .cm-card small { margin-left: 8px; color: var(--muted); font-size: 12px; }
+.cm-card p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
+.cm-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px; border-radius: 16px; border: 1.5px dashed rgba(207,224,255,.35); cursor: pointer; text-align: center;
+  background: radial-gradient(ellipse at center, rgba(160,190,255,.08), transparent 70%); transition: border-color .25s, background .25s, transform .25s; margin-bottom: 10px; }
+.cm-drop i { font-style: normal; font-size: 22px; color: #cfe0ff; text-shadow: 0 0 14px #9fb8ff; }
+.cm-drop b { font-weight: 500; font-size: 15px; letter-spacing: .2em; color: var(--ink); }
+.cm-drop span { font-size: 12px; color: var(--muted); line-height: 1.7; }
+.cm-drop:hover, .cm-drop.over { border-color: #cfe0ff; background: radial-gradient(ellipse at center, rgba(160,190,255,.18), transparent 75%); transform: scale(1.01); }
+#dropveil { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none; opacity: 0; transition: opacity .25s;
+  background: radial-gradient(ellipse at center, rgba(40,60,120,.35), rgba(0,0,0,.55)); }
+#dropveil.show { opacity: 1; }
+#dropveil > div { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 34px; border-radius: 20px; border: 1.5px dashed rgba(207,224,255,.45); background: var(--glass); backdrop-filter: blur(12px); }
+#dropveil b { font-weight: 400; font-size: 20px; letter-spacing: .4em; color: #eef3ff; }
+#dropveil span { font-size: 12.5px; color: var(--ink-2); letter-spacing: .08em; text-align: center; }
