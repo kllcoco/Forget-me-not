@@ -1,4 +1,9 @@
 # 把「勿忘我」挂进 dsh 的插件树。用包的裸名，这样浏览器端（左侧栏「记忆」）才会一起加载。
+# 可选配置：
+#   config:
+#     autoDigest: true     # 每段对话结束后自动总结成记忆
+#     digestEvery: 1       # 每几轮对话总结一次
+#     autoRecall: true     # 用户说话时自动想起相关记忆放进上下文
 - insert:
     - id: forget-me-not
-      name: forget-me-not
+      name: dsh-forget-me-not

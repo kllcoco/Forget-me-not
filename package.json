@@ -1,10 +1,13 @@
 {
-  "name": "forget-me-not",
-  "version": "0.1.0",
-  "description": "勿忘我：给任何 LLM 用的封存式记忆大脑，带 3D 莫比乌斯记忆星环。DeepSeek Harness 插件 / MCP / REST",
+  "name": "dsh-forget-me-not",
+  "version": "0.2.0",
+  "description": "勿忘我：给任何 LLM 用的封存式记忆大脑——艾宾浩斯遗忘、联想召回、可塑性性格、自动总结，附 3D 莫比乌斯记忆星环与脑图。DeepSeek Harness 插件 / MCP / REST",
   "type": "module",
   "main": "lib/index.js",
-  "bin": { "forget-me-not": "bin/forget-me-not.js" },
+  "bin": {
+    "dsh-forget-me-not": "bin/forget-me-not.js",
+    "forget-me-not": "bin/forget-me-not.js"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
@@ -13,14 +16,42 @@
     "./locale/*.json": "./locale/*.json"
   },
   "icon": "./icon.svg",
-  "files": ["bin", "lib", "web", "locale", "icon.svg", "cordis.patch.yml", "README.md", "LICENSE"],
-  "keywords": ["dsh-plugin", "deepseek-harness", "memory", "llm", "mcp", "agent-memory", "three.js"],
+  "files": [
+    "bin",
+    "lib",
+    "web",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "memory",
+    "llm",
+    "mcp",
+    "agent-memory",
+    "long-term-memory",
+    "ebbinghaus",
+    "three.js"
+  ],
   "license": "MIT",
-  "engines": { "node": ">=20", "dsh": ">=0.2.2-rc.1 <0.3.0" },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
-      "inject": ["@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-sidebar"],
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
       "platform": "web"
     }
   },
@@ -29,12 +60,25 @@
     "@deepseek-ai/dsh-tools": "*"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": { "optional": true },
-    "@deepseek-ai/dsh-tools": { "optional": true }
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
   },
   "scripts": {
     "start": "node bin/forget-me-not.js serve",
     "seed": "node bin/forget-me-not.js seed",
     "test": "node --test test/*.test.js"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kllcoco/Forget-me-not.git"
+  },
+  "homepage": "https://github.com/kllcoco/Forget-me-not#readme",
+  "bugs": {
+    "url": "https://github.com/kllcoco/Forget-me-not/issues"
+  },
+  "author": "kllcoco"
 }

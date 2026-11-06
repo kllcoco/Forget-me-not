@@ -34,10 +34,25 @@ export function hubPos(key) { const p = HUBS[key] || [0, 0, 0]; return new THREE
 export function createBrainMap(scene) {
   const group = new THREE.Group(); group.visible = false; scene.add(group);
   const stars = makeStars(4096); group.add(stars);
-  const lineMat = o => new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending });
-  const spokes = new THREE.LineSegments(new THREE.BufferGeometry(), lineMat(0.06));
-  const flows = new THREE.LineSegments(new THREE.BufferGeometry(), lineMat(0.22));
-  const assoc = new THREE.LineSegments(new THREE.BufferGeometry(), lineMat(0.1));
+  // 神经纤维：弧线，两端亮、中间淡；光脉冲沿着线流动
+  const fiberMat = ({ base, pulse, speed, tail = 0.16 }) => new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uBase: { value: base }, uPulse: { value: pulse }, uSpeed: { value: speed }, uTail: { value: tail }, uFade: { value: 1 } },
+    vertexShader: `attribute vec3 color; attribute float aU, aSeed, aW; varying vec3 vC; varying float vU, vSeed, vW;
+      void main(){ vC = color; vU = aU; vSeed = aSeed; vW = aW; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float uTime, uBase, uPulse, uSpeed, uTail, uFade; varying vec3 vC; varying float vU, vSeed, vW;
+      void main(){
+        float ends = 0.18 + 0.82 * pow(abs(vU - 0.5) * 2.0, 2.0);
+        float head = fract(uTime * uSpeed * (0.6 + vSeed) + vSeed * 7.0);
+        float behind = head - vU;
+        float p = behind >= 0.0 ? pow(clamp(1.0 - behind / uTail, 0.0, 1.0), 3.0) : 0.0;
+        float a = (ends * uBase + p * uPulse) * vW * uFade;
+        gl_FragColor = vec4(vC * a, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const spokes = new THREE.LineSegments(new THREE.BufferGeometry(), fiberMat({ base: 0.07, pulse: 0.0, speed: 0 }));
+  const flows = new THREE.LineSegments(new THREE.BufferGeometry(), fiberMat({ base: 0.24, pulse: 0.9, speed: 0.18, tail: 0.12 }));
+  const assoc = new THREE.LineSegments(new THREE.BufferGeometry(), fiberMat({ base: 0.26, pulse: 0.75, speed: 0.12, tail: 0.22 }));
   group.add(spokes, flows, assoc);
   const hubSprites = new THREE.Group(); group.add(hubSprites);
 
@@ -53,12 +68,31 @@ export function createBrainMap(scene) {
   fogG.setAttribute('aSize', new THREE.BufferAttribute(fs, 1)); fogG.setAttribute('aAlpha', new THREE.BufferAttribute(fa, 1));
   let fog = null;
 
-  function setLines(obj, segs) {
-    const pos = new Float32Array(segs.length * 6), col = new Float32Array(segs.length * 6);
-    segs.forEach(([a, b, ca, cb], i) => { pos.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6); col.set([ca.r, ca.g, ca.b, cb.r, cb.g, cb.b], i * 6); });
-    obj.geometry.dispose(); const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    obj.geometry = g;
+  /** segs: [起点, 终点, 起点颜色, 终点颜色, 弯曲程度, 亮度]。弯成一条二次贝塞尔弧线，向外、向上鼓起。 */
+  function setLines(obj, segs, steps = 18) {
+    const n = segs.length * steps
+    const pos = new Float32Array(n * 6), col = new Float32Array(n * 6), u = new Float32Array(n * 2), seed = new Float32Array(n * 2), w = new Float32Array(n * 2)
+    const P = new THREE.Vector3(), Q = new THREE.Vector3(), C = new THREE.Vector3(), out = new THREE.Vector3(), c = new THREE.Color()
+    const bez = (a, ctl, b, t, o) => o.set(0, 0, 0).addScaledVector(a, (1 - t) ** 2).addScaledVector(ctl, 2 * t * (1 - t)).addScaledVector(b, t * t)
+    let k = 0
+    segs.forEach(([a, b, ca, cb, bend = 0.22, bright = 1], i) => {
+      const mid = a.clone().add(b).multiplyScalar(0.5), len = a.distanceTo(b)
+      out.copy(mid); out.y = 0; if (out.lengthSq() < 1e-6) out.set(0, 0, 1); out.normalize()
+      C.copy(mid).addScaledVector(out, len * bend * 0.6).add(new THREE.Vector3(0, len * bend, 0))
+      const sd = Math.random()
+      for (let j = 0; j < steps; j++, k++) {
+        const t0 = j / steps, t1 = (j + 1) / steps
+        bend ? bez(a, C, b, t0, P) : P.lerpVectors(a, b, t0)
+        bend ? bez(a, C, b, t1, Q) : Q.lerpVectors(a, b, t1)
+        pos.set([P.x, P.y, P.z, Q.x, Q.y, Q.z], k * 6)
+        c.copy(ca).lerp(cb, t0); col.set([c.r, c.g, c.b], k * 6); c.copy(ca).lerp(cb, t1); col.set([c.r, c.g, c.b], k * 6 + 3)
+        u.set([t0, t1], k * 2); seed.set([sd, sd], k * 2); w.set([bright, bright], k * 2)
+      }
+    })
+    obj.geometry.dispose(); const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    g.setAttribute('aU', new THREE.BufferAttribute(u, 1)); g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1)); g.setAttribute('aW', new THREE.BufferAttribute(w, 1))
+    obj.geometry = g
   }
 
   /** 根据当前记忆重新排布脑图；每段记忆得到 m.bpos。 */
@@ -85,17 +119,17 @@ export function createBrainMap(scene) {
           p = new THREE.Vector3(Math.sin(phi) * Math.cos(th) * rr * 1.25, Math.cos(phi) * rr * 0.75, Math.sin(phi) * Math.sin(th) * rr).add(hub);
         }
         m.bpos = p;
-        if (rk !== 'longterm' || i % 3 === 0) spokeSegs.push([hub, p, col, col]);
+        if (rk !== 'longterm' || i % 3 === 0) spokeSegs.push([hub, p, col, col.clone().multiplyScalar(0.4), 0, 1]);
       });
     }
-    setLines(spokes, spokeSegs);
-    setLines(flows, FLOWS.map(([a, b]) => [hubPos(a), hubPos(b), new THREE.Color(regions[a]?.color || '#fff'), new THREE.Color(regions[b]?.color || '#fff')]));
+    setLines(spokes, spokeSegs, 1);
+    setLines(flows, FLOWS.map(([a, b]) => [hubPos(a), hubPos(b), new THREE.Color(regions[a]?.color || '#fff'), new THREE.Color(regions[b]?.color || '#fff'), 0.14, 1]), 28);
     const byId = new Map(memories.map(m => [m.id, m]));
     const tint = m => new THREE.Color(regions[m.region]?.color || '#fff').lerp(new THREE.Color(1, 1, 1), 0.35);
     // 只画跨脑区的关联和重要记忆之间的关联，避免一团乱麻
     setLines(assoc, (links || []).map(([a, b, w]) => [byId.get(a), byId.get(b), w])
       .filter(([a, b, w]) => a?.bpos && b?.bpos && (a.region !== b.region || w > 0.55 || a.importance + b.importance > 1.1))
-      .map(([a, b]) => [a.bpos, b.bpos, tint(a), tint(b)]));
+      .map(([a, b, w]) => [a.bpos, b.bpos, tint(a), tint(b), a.region === b.region ? 0.35 : 0.2, Math.min(1, 0.35 + w)]), 20);
 
     hubSprites.clear();
     for (const [k] of Object.entries(HUBS)) {
@@ -126,7 +160,7 @@ export function createBrainMap(scene) {
     for (const m of memories) if (m.bidx != null) at.aHi.array[m.bidx] = hiOf(m);
     at.aHi.needsUpdate = true;
     stars.material.uniforms.uTime.value = time; stars.material.uniforms.uTint.value = 1;
-    flows.material.opacity = 0.18 + 0.07 * Math.sin(time * 1.3);
+    for (const o of [spokes, flows, assoc]) o.material.uniforms.uTime.value = time;
     hubSprites.children.forEach((s, i) => { s.material.opacity = 0.6 + 0.25 * Math.sin(time * 1.1 + i); });
   }
 

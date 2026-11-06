@@ -29,6 +29,9 @@ test('第一次写入：在桌面生成唯一的钥匙，并让模型告诉用�
     const t = fs.readFileSync(p, 'utf8')
     assert.ok(!t.includes('PRIVATE KEY') && !t.includes('火锅') && !t.includes('香菜'), f)
   }
+  // 一模一样的内容不会存第二份
+  const dup = await callTool(brain, 'memory_remember', { content: '阿遥喜欢重庆火锅，不要香菜', region: 'life', importance: 0.6 })
+  assert.equal(dup.memory.duplicate, true)
   // 第二次写入不会再生成钥匙
   const r2 = await callTool(brain, 'memory_remember', { content: '第二条', region: 'working', importance: 0.2 })
   assert.equal(r2.admin_key, undefined)

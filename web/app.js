@@ -8,6 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { A, TAU, MAX_REGIONS, frame, makeCore, makeDust, makeFx, makeSky, makeStars, ringPos } from './ring.js';
 import { paint, paintSealed } from './painter.js';
 import { createBrainMap, hubPos } from './brainmap.js';
+import { createMusic } from './music.js';
 
 const $ = s => document.querySelector(s);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -525,6 +526,11 @@ let swapping = false;
 function setView(v) {
   S.view = v;
   for (const o of ringObjs) o.visible = v === 'ring';
+  // 莫比乌斯环不丢：在脑图里，它变成环绕整个大脑的一圈星河
+  dust.visible = true;
+  dust.scale.setScalar(v === 'brain' ? 3.3 : 1);
+  dust.rotation.set(v === 'brain' ? -0.32 : 0, 0, v === 'brain' ? 0.06 : 0);
+  dust.position.set(v === 'brain' ? 3 : 0, v === 'brain' ? -2 : 0, 0);
   if (organs) organs.visible = v === 'ring';
   brain.group.visible = v === 'brain';
   document.body.classList.toggle('brain', v === 'brain');
@@ -859,10 +865,10 @@ $('#ed-ok').onclick = async () => {
 $('#connect').onclick = async () => {
   let info = {};
   try { info = await api('api/connect'); } catch { }
-  const mcpJson = JSON.stringify({ mcpServers: { 'forget-me-not': info.mcp_stdio || { command: 'npx', args: ['-y', 'forget-me-not', 'mcp'] } } }, null, 2);
+  const mcpJson = JSON.stringify({ mcpServers: { 'forget-me-not': info.mcp_stdio || { command: 'npx', args: ['-y', 'dsh-forget-me-not', 'mcp'] } } }, null, 2);
   const row = (t, v) => v ? `<p class="sub" style="margin:0 0 8px">${t}</p><pre>${esc(v)}</pre>` : '';
   $('#conn-body').innerHTML =
-    row('① DeepSeek Harness：', 'dsh plugin add forget-me-not') +
+    row('① DeepSeek Harness：', 'dsh plugin --profile web add dsh-forget-me-not') +
     row('② Claude / Cursor / Cherry Studio 等支持 MCP 的客户端：', mcpJson) +
     row('③ 远程 MCP（streamable HTTP）：', info.mcp_http) +
     row('④ 任何能调函数的模型（OpenAI / Gemini / GPTs / Dify / Coze）：', info.openapi) +
@@ -982,7 +988,8 @@ function tick() {
   const tint = smooth(46, 16, dist);
   dust.material.uniforms.uTint.value = tint; stars.material.uniforms.uTint.value = tint;
   stars.material.uniforms.uDim.value = lerp(stars.material.uniforms.uDim.value, reel.on ? 1 : 0, 1 - Math.exp(-dt * 3));
-  dust.material.uniforms.uBright.value = lerp(1, 0.55, smooth(14, 4, dist));
+  dust.material.uniforms.uBright.value = S.view === 'brain' ? 0.5 : lerp(1, 0.55, smooth(14, 4, dist));
+  if (S.view === 'brain') dust.material.uniforms.uTint.value = 0.55;
   for (const m of [dust.material, stars.material, sky.mat]) m.uniforms.uTime.value = time;
   if (S.view === 'brain') {
     brain.update(time, S.memories, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)));
@@ -1011,6 +1018,8 @@ function tick() {
     toast('<b>连接失败</b>没有找到记忆大脑服务', '#ff8fa6');
   }
   organs = buildOrgans();
+  const music = createMusic({ onToast: toast });
+  music.load().then(() => music.play());
   tick();
   pollEvents();
 })();
