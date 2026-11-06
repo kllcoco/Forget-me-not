@@ -38,6 +38,7 @@
   <h1 id="title">勿忘我<small>Forget-me-not</small></h1>
   <p class="poem" id="poem">把她留在时间里的痕迹，延长得再久一些</p>
   <div class="stats" id="stats"></div>
+  <div class="chars"><button id="charbtn" title="切换角色：一个角色一个大脑"><i></i><span id="charname">默认</span><b>▾</b></button><div id="charmenu"></div></div>
 </header>
 
 <nav id="legend" class="ui hide-in-reel"></nav>
@@ -61,6 +62,7 @@
   <button class="chip on" id="rot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>自动旋转</button>
   <button class="chip" id="reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>重置视角</button>
   <button class="chip" id="brainbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="7" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="13" r="2.4"/><circle cx="7" cy="19" r="2"/><circle cx="18" cy="18" r="2"/><path d="M7.6 8.3 10.5 11.4M16.4 7.3 13.6 11.3M11 15 8.2 17.6M13.8 14.6l2.6 2.2"/></svg><span>脑图</span></button>
+  <button class="chip" id="tlbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>时间线</button>
   <button class="chip" id="fsbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>全屏</button>
   <button class="chip" id="connect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 15 15 9M10 6l1-1a5 5 0 0 1 7 7l-1 1M14 18l-1 1a5 5 0 0 1-7-7l1-1"/></svg>接入</button>
 </div>
@@ -102,6 +104,9 @@
     <div class="row">
       <button class="chip" id="km-export">导出记忆</button>
       <label class="chip" style="cursor:pointer">导入记忆<input type="file" id="km-import" accept=".fmn,application/json" hidden></label>
+      <button class="chip" id="km-backup" title="把钥匙拆成 3 片，任意 2 片就能拼回来">备份钥匙</button>
+      <label class="chip" style="cursor:pointer" title="钥匙丢了：选任意 2 片碎片拼回来">用碎片恢复<input type="file" id="km-restore" accept=".txt,text/plain" multiple hidden></label>
+      <button class="chip" id="km-sleep" title="把零碎相似的小记忆合并成一段">睡眠整理</button>
       <span style="flex:1"></span>
       <button class="chip" id="km-cancel">关闭</button>
       <button class="chip on" id="km-ok">保存路径</button>
@@ -161,6 +166,15 @@
       <button class="chip" id="pt-close">关闭</button>
       <button class="chip on" id="pt-save" style="display:none">保存</button>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="timelinemodal">
+  <div class="panel" style="width:min(900px,95vw)">
+    <h4 id="tl-title">时间线</h4>
+    <p class="sub" id="tl-sub"></p>
+    <div id="tl-body"></div>
+    <div class="row"><button class="chip on" id="tl-close">关闭</button></div>
   </div>
 </div>
 

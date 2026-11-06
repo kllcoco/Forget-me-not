@@ -194,7 +194,7 @@ async function loadBrain(first = false) {
   S.adj = new Map(); for (const [a, b, w] of S.links) { (S.adj.get(a) || S.adj.set(a, []).get(a)).push([b, w]); (S.adj.get(b) || S.adj.set(b, []).get(b)).push([a, w]); }
   layoutArcs(); layoutMemories(); writeStarBuffers();
   brain.layout(S.regionBy, S.memories, S.links, fx.points.material);
-  renderLegend(); renderStats(); buildLabels(); renderKey(); renderPersona();
+  renderLegend(); renderStats(); buildLabels(); renderKey(); renderPersona(); loadCharacters();
   if (reel.on) refreshReelList();
 }
 
@@ -462,7 +462,7 @@ function cardHTML(m) {
     <h3>${esc(m.title || m.content.slice(0, 12))}</h3>
     <p>${esc(m.content)}</p>
     <div class="foot">${m.emotion ? `<span class="tag emo">${esc(m.emotion)}</span>` : ''}${tags}
-      ${m.status === 'archived' ? '<span class="archived">已遗忘 · 可召回</span>' : m.forget_in_days == null ? '<span class="left">永远不会遗忘</span>' : `<span class="left">还会记得约 ${daysLeft(m)} 天</span>`}
+      ${m.superseded_by ? '<span class="archived">已被新的记忆取代</span>' : m.merged_into ? '<span class="archived">已在睡眠中整理进一段新的记忆</span>' : m.status === 'archived' ? '<span class="archived">已遗忘 · 可召回</span>' : m.forget_in_days == null ? '<span class="left">永远不会遗忘</span>' : `<span class="left">还会记得约 ${daysLeft(m)} 天</span>`}
       <span class="imp" title="重要性 ${m.importance}"><i style="width:${Math.round(m.importance * 100)}%"></i></span></div>
     ${assocHTML(m)}
     <div class="admin"><button data-act="edit">修改</button><button data-act="archive">${m.status === 'archived' ? '召回' : '遗忘'}</button><button class="danger" data-act="delete">彻底删除</button></div>
@@ -612,7 +612,8 @@ function exitBrain() {
 }
 
 // ------------------------------------------------------------------ 人设卡（太阳 · 心核）+ 性格养成
-const personaName = () => (S.persona?.profile?.name || 'TA').trim() || 'TA';
+// 名字：人设卡里的名字 → 新建角色时起的名字 → TA
+const personaName = () => { const n = S.persona?.profile?.name; return (n && n !== 'TA' ? n : S.charName || 'TA').trim() || 'TA'; };
 /** 代词随人设卡里的性别变：女→她，男→他，没写→TA */
 const pronoun = () => { const g = String(S.persona?.profile?.gender || ''); return /女|female|woman|girl|^f$/i.test(g) ? '她' : /男|male|man|boy|^m$/i.test(g) ? '他' : 'TA'; };
 function renderTitle() {
@@ -1012,6 +1013,14 @@ function playEvent(ev) {
     });
     burst(organ('metabolism'), reg.metabolism.color, 30, 1.2);
     toast(`<b>代谢·治理</b>${mems.length} 段记忆按遗忘曲线淡去（仍可召回）`, reg.metabolism.color);
+  } else if (ev.kind === 'supersede') {
+    mems.forEach(m => { m.flash = 0.6; });
+    toast(`<b>海马体</b>${mems.length} 段旧记忆被新的取代了`, reg.hippocampus.color);
+  } else if (ev.kind === 'consolidate') {
+    mems.forEach(m => { burst(tgtOf(m), m.color.getStyle(), 10, 0.8); });
+    toast(`<b>睡眠整理</b>把 ${mems.length} 段零碎的记忆合并成了一段`, '#c9a7ff');
+  } else if (ev.kind === 'key-backup') {
+    toast('<b>钥匙</b>已经拆成碎片备份，请把每一片放在不同的地方', '#f3d9a4');
   } else if (ev.kind === 'persona') {
     corePulse = 0.8;
     toast(`<b>性格养成</b>${(ev.traits || []).length ? 'TA 的性格因为经历有了一点点变化' : '性格基线被调整了'}`, '#c9a7ff');
@@ -1105,6 +1114,111 @@ async function importMemories(file) {
   }
 }
 $('#km-import').onchange = e => e.target.files[0] && importMemories(e.target.files[0]);
+
+// 钥匙备份：拆成 3 片，任意 2 片拼回来。打开一张可以打印的页面（每片一个二维码），也可以存成文本
+function loadQR() {
+  return window.qrcode ? Promise.resolve(window.qrcode) : new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'static/vendor/qrcode.js'; sc.onload = () => ok(window.qrcode); sc.onerror = no; document.head.appendChild(sc); });
+}
+$('#km-backup').onclick = async () => {
+  if (!S.key.unlocked) { $('#km-err').textContent = '钥匙要在，才能拆成碎片备份'; return; }
+  try {
+    const { shares } = await api('api/key/backup', { method: 'POST', body: { parts: 3, need: 2 } });
+    const qrcode = await loadQR();
+    const card = (t, i) => {
+      const line = t.split('\n').find(l => l.startsWith('FMN-SHARE-1:'));
+      const q = qrcode(0, 'M'); q.addData(line); q.make();
+      const href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(t);
+      return `<section><h2>钥匙碎片 ${i + 1} / ${shares.length}</h2>${q.createSvgTag({ cellSize: 3, margin: 2, scalable: true })}
+        <pre>${esc(t.replace(line, ''))}</pre><code>${esc(line)}</code><a download="勿忘我-钥匙碎片-${i + 1}.txt" href="${href}">存成文本</a></section>`;
+    };
+    const html = `<!doctype html><meta charset="utf-8"><title>勿忘我 · 钥匙碎片</title><style>
+      body{font-family:"Noto Serif SC",serif;margin:24px;color:#111} h1{font-weight:400;letter-spacing:.2em} section{page-break-inside:avoid;border:1px dashed #999;border-radius:12px;padding:18px;margin:16px 0;display:grid;grid-template-columns:200px 1fr;gap:18px}
+      section h2{grid-column:1/-1;margin:0;font-weight:400;letter-spacing:.2em} svg{width:200px;height:200px} pre{white-space:pre-wrap;margin:0;font:13px/1.8 inherit} code{grid-column:1/-1;font-size:10px;word-break:break-all;color:#555} a{grid-column:1/-1}
+      @media print{a,.tip{display:none}}</style>
+      <h1>勿忘我 · 超级管理员钥匙碎片</h1><p class="tip">打印出来，或者把每片存成文本，分别放在不同的地方。任意 2 片就能在记忆星环里「用碎片恢复」钥匙。</p>${shares.map(card).join('')}`;
+    open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank');
+    toast('<b>钥匙</b>碎片已经生成，打印或存好后请分开保管', '#f3d9a4');
+  } catch (e) { $('#km-err').textContent = e.message; }
+};
+$('#km-restore').onchange = async e => {
+  try {
+    const texts = await Promise.all([...e.target.files].map(f => f.text()));
+    S.key = await api('api/key/restore', { method: 'POST', body: { shares: texts } });
+    await loadBrain(); openKey(); corePulse = 1.4; burst(new THREE.Vector3(), '#f3d9a4', 120, 4);
+    toast('<b>钥匙</b>用碎片拼回来了，已经放到桌面', '#f3d9a4');
+  } catch (err) { $('#km-err').textContent = err.message; }
+  e.target.value = '';
+};
+$('#km-sleep').onclick = async () => {
+  try {
+    const { merged } = await api('api/consolidate', { method: 'POST', body: {} });
+    await loadBrain();
+    toast(merged.length ? `<b>睡眠整理</b>整理了 ${merged.length} 团零碎的记忆` : '<b>睡眠整理</b>没有需要整理的零碎记忆', '#c9a7ff');
+  } catch (err) { $('#km-err').textContent = err.status === 423 ? '钥匙要在，才能整理记忆' : err.message; }
+};
+
+// ------------------------------------------------------------------ 角色：一个角色一个大脑
+const rootBase = location.pathname.replace(/c\/c_[a-z0-9]+\/?$/, '').replace(/[^/]*$/, '');
+async function loadCharacters() {
+  try {
+    const { current, list } = await api('api/characters');
+    const cur = list.find(c => c.id === current) || list[0];
+    const cn = cur && !(cur.id === 'main' && cur.name === '默认') ? cur.name : null;
+    if (cn !== S.charName) { S.charName = cn; renderTitle(); renderLegend(); buildLabels(); }
+    $('#charname').textContent = cur?.id === 'main' && personaName() !== 'TA' ? personaName() : (cur?.name || '默认');
+    $('#charmenu').innerHTML = list.map(c => `<button data-c="${c.id}" class="${c.id === current ? 'cur' : ''}">${esc(c.id === 'main' && c.name === '默认' && c.id === current && personaName() !== 'TA' ? personaName() : c.name)}</button>`).join('') +
+      `<div class="new"><input id="charnew" placeholder="新角色的名字" maxlength="40"><button id="charadd" style="width:auto">新建</button></div>`;
+    $('#charmenu').querySelectorAll('[data-c]').forEach(b => b.onclick = () => { if (b.dataset.c !== current) location.href = rootBase + (b.dataset.c === 'main' ? '' : `c/${b.dataset.c}/`) + location.search; });
+    const add = async () => {
+      const name = $('#charnew').value.trim(); if (!name) return;
+      try { const c = await api('api/characters', { method: 'POST', body: { name } }); location.href = rootBase + `c/${c.id}/` + location.search; } catch (e) { toast(`<b>角色</b>${esc(e.message)}`, '#ff8fa6'); }
+    };
+    $('#charadd').onclick = add; $('#charnew').onkeydown = e => { if (e.key === 'Enter') add(); };
+  } catch { }
+}
+$('#charbtn').onclick = e => { e.stopPropagation(); $('#charmenu').classList.toggle('show'); };
+document.addEventListener('pointerdown', e => { if (!e.target.closest('.chars')) $('#charmenu').classList.remove('show'); });
+
+// ------------------------------------------------------------------ 回忆时间线：一年的热力图、那年今天、按月份翻看
+const tlModal = $('#timelinemodal');
+function openTimeline() {
+  const nm = personaName(), day = 86400, now = Date.now() / 1000;
+  const dateOf = m => new Date(sortKey(m) * 1000);
+  const key = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const byDay = new Map();
+  for (const m of S.memories) { const k = key(dateOf(m)); (byDay.get(k) || byDay.set(k, []).get(k)).push(m); }
+  // 热力图：最近 53 周，每列一周
+  const start = new Date((now - 52 * 7 * day) * 1000); start.setDate(start.getDate() - start.getDay());
+  let cells = '', months = [];
+  for (let w = 0; w < 53; w++) for (let d = 0; d < 7; d++) {
+    const t = new Date(start.getTime() + (w * 7 + d) * day * 1000);
+    if (d === 0 && t.getDate() <= 7) months.push(`${t.getMonth() + 1}月`);
+    const n = (byDay.get(key(t)) || []).length, lv = n ? Math.min(4, Math.ceil(n / 1.5)) : 0;
+    cells += `<i class="${lv ? 'l' + lv : ''}" ${n ? `data-n="${n}" data-k="${key(t)}"` : ''} title="${t.getMonth() + 1}月${t.getDate()}日 · ${n} 段记忆"></i>`;
+  }
+  const label = m => S.sealed || m.content == null ? '锁着的记忆' : esc(m.title || m.content.slice(0, 40));
+  const status = m => m.superseded_by ? '已被取代' : m.merged_into ? '已整理' : m.status === 'archived' ? '已遗忘' : '';
+  const row = m => `<div class="row-m ${m.status === 'archived' ? 'faded' : ''}" data-id="${m.id}"><time>${fmtDate(sortKey(m))}</time><span class="d" style="--c:${m.color.getStyle()}"></span><span>${label(m)}</span><span class="st">${status(m)}</span></div>`;
+  // 那年今天：往年同一天前后两天
+  const today = new Date(), otd = S.memories.filter(m => { const d = dateOf(m); return d.getFullYear() < today.getFullYear() && Math.abs((new Date(today.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5) <= 2; });
+  // 按月份
+  const groups = new Map();
+  for (const m of [...S.memories].sort((a, b) => sortKey(b) - sortKey(a))) { const d = dateOf(m), k = `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`; (groups.get(k) || groups.set(k, []).get(k)).push(m); }
+  $('#tl-title').textContent = `${nm}的时间线`;
+  $('#tl-sub').textContent = `一年里每一天留下了多少记忆（越亮越多）。点格子或下面的记忆，就会飞过去放映。${S.sealed ? '钥匙不在，只能看到日期。' : ''}`;
+  $('#tl-body').innerHTML = `<div class="heat">${cells}</div><div class="months">${months.slice(0, 13).map(x => `<span>${x}</span>`).join('')}</div>
+    <h6>那年今天</h6><div class="onthisday">${otd.length ? otd.map(row).join('') : '<div class="empty">往年的今天还没有记忆。</div>'}</div>
+    ${[...groups].map(([k, list]) => `<h6>${k} · ${list.length} 段</h6>${list.map(row).join('')}`).join('')}`;
+  $('#tl-body').querySelectorAll('[data-id]').forEach(r => r.onclick = () => goMemory(S.byId.get(r.dataset.id)));
+  $('#tl-body').querySelectorAll('.heat [data-k]').forEach(c => c.onclick = () => { const m = byDay.get(c.dataset.k)[0]; if (m) goMemory(m); });
+  tlModal.classList.add('show');
+}
+function goMemory(m) {
+  if (!m) return; tlModal.classList.remove('show');
+  if (S.view === 'brain') startChain(m); else startReel(m.region, m.id);
+}
+$('#tlbtn').onclick = openTimeline;
+$('#tl-close').onclick = () => tlModal.classList.remove('show');
 addEventListener('drop', e => { const f = [...(e.dataTransfer?.files || [])].find(x => /\.fmn$/i.test(x.name)); if (f) { e.preventDefault(); importMemories(f); } });
 // 钥匙随时可能被拿走或放回：定时看一眼
 setInterval(async () => {
