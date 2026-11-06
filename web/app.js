@@ -1168,7 +1168,7 @@ function playEvent(ev) {
     toast('<b>钥匙</b>已经拆成碎片备份，请把每一片放在不同的地方', '#f3d9a4');
   } else if (ev.kind === 'persona') {
     corePulse = 0.8;
-    toast(`<b>性格养成</b>${(ev.traits || []).length ? 'TA 的性格因为经历有了一点点变化' : '性格基线被调整了'}`, '#c9a7ff');
+    toast(`<b>性格养成</b>${(ev.changed || (ev.traits || []).length) ? 'TA 的性格因为经历有了一点点变化' : '性格基线被调整了'}`, '#c9a7ff');
   } else if (ev.kind === 'genesis') {
     burst(new THREE.Vector3(), '#f3d9a4', 140, 4); corePulse = 1.5;
     toast('<b>钥匙诞生</b>唯一的超级管理员钥匙已经放到了你的桌面，请备份好', '#f3d9a4');
