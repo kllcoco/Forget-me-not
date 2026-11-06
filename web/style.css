@@ -76,7 +76,7 @@ body.reel .ui.hide-in-reel { opacity: 0; transform: translateX(-12px); pointer-e
 
 /* ---------- toolbar ---------- */
 #toolbar { left: 30px; bottom: 28px; display: flex; gap: 8px; align-items: center; }
-.chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 999px; font-size: 12.5px; letter-spacing: .14em;
+.chip { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; padding: 8px 14px; border-radius: 999px; font-size: 12.5px; letter-spacing: .14em;
   background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   color: var(--ink-2); transition: all .3s var(--ease); }
 .chip:hover { color: var(--ink); border-color: rgba(200,214,255,.32); }
@@ -221,7 +221,7 @@ body.entered #enter { opacity: 0; pointer-events: none; transform: translate(-50
 .modal input { width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--line); background: rgba(0,0,0,.25); outline: 0; font-size: 15px; letter-spacing: .2em; margin-bottom: 10px; user-select: text; }
 .modal input:focus { border-color: rgba(200,214,255,.45); }
 .modal .err { min-height: 20px; font-size: 12.5px; color: var(--rose); letter-spacing: .06em; }
-.modal .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+.modal .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
 .modal .row .chip { padding: 9px 18px; }
 .modal .warn { font-size: 12px; line-height: 1.8; color: var(--gold); opacity: .85; margin: 6px 0 4px; }
 .modal pre { margin: 0 0 12px; padding: 12px 14px; border-radius: 12px; background: rgba(0,0,0,.35); border: 1px solid var(--faint); font-size: 12px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; word-break: break-all; user-select: text; font-family: ui-monospace, Menlo, monospace; }

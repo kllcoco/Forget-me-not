@@ -58,12 +58,12 @@ export function createGalaxy(scene) {
         gl_Position = projectionMatrix * mv;
         float tw = 0.7 + 0.3 * sin(uTime * (0.8 + aPhase * 2.0) + aPhase * 60.0);
         vC = aColor;
-        vA = uFade * (aKind > 1.5 ? 0.22 : (aKind > 0.5 ? 0.9 : tw)) * (0.55 + 0.45 * smoothstep(uR, 0.0, r));
+        vA = uFade * (aKind > 1.5 ? 0.22 : (aKind > 0.5 ? 0.9 : tw)) * (0.55 + 0.45 * (1.0 - smoothstep(0.0, uR, r)));
         gl_PointSize = clamp(aSize * uPixel * (140.0 / -mv.z), 0.0, 40.0);
       }`,
     fragmentShader: /* glsl */`
       varying vec3 vC; varying float vA;
-      void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = (exp(-d*d*8.0) + exp(-d*d*2.0) * 0.18) * vA; if (a < 0.003) discard; gl_FragColor = vec4(vC * a, a); }`,
+      void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = (exp(-d*d*8.0) + exp(-d*d*2.0) * 0.18) * vA * (1.0 - smoothstep(0.6, 1.0, d)); if (a < 0.003) discard; gl_FragColor = vec4(vC * a, a); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   const disk = new THREE.Points(g, mat);

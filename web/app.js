@@ -442,7 +442,7 @@ function cardHTML(m) {
     <h3>${esc(m.title || m.content.slice(0, 12))}</h3>
     <p>${esc(m.content)}</p>
     <div class="foot">${m.emotion ? `<span class="tag emo">${esc(m.emotion)}</span>` : ''}${tags}
-      ${m.status === 'archived' ? '<span class="archived">已遗忘 · 可召回</span>' : `<span class="left">还会记得约 ${daysLeft(m)} 天</span>`}
+      ${m.status === 'archived' ? '<span class="archived">已遗忘 · 可召回</span>' : m.forget_in_days == null ? '<span class="left">永远不会遗忘</span>' : `<span class="left">还会记得约 ${daysLeft(m)} 天</span>`}
       <span class="imp" title="重要性 ${m.importance}"><i style="width:${Math.round(m.importance * 100)}%"></i></span></div>
     ${assocHTML(m)}
     <div class="admin"><button data-act="edit">修改</button><button data-act="archive">${m.status === 'archived' ? '召回' : '遗忘'}</button><button class="danger" data-act="delete">彻底删除</button></div>
@@ -989,10 +989,10 @@ function openKey() {
   const k = S.key;
   $('#km-sub').textContent = k.initialized
     ? '这把私钥和这份记忆一一对应。每次访问记忆，都会去下面的路径看一眼钥匙还在不在：在就自动解锁，不在谁都打不开。'
-    : '还没有记忆。模型第一次写入记忆时，会在你电脑的桌面上生成唯一的超级管理员钥匙。';
+    : '还没有记忆。模型第一次写入记忆时，会在你电脑的桌面上生成唯一的超级管理员钥匙。如果你有以前导出的记忆文件，可以填上那把钥匙的路径后导入。';
   $('#km-state').innerHTML = !k.initialized ? '<span>尚未生成</span>'
     : `<span class="${k.unlocked ? 'ok' : 'no'}">●</span><div><b>${k.unlocked ? '钥匙在，记忆已解锁' : '找不到钥匙，记忆被锁着'}</b><small>指纹 ${esc(k.fingerprint || '')}</small></div>`;
-  $('#km-path').value = k.key_path || ''; $('#km-path').disabled = !k.initialized;
+  $('#km-path').value = k.key_path || ''; $('#km-path').placeholder = k.initialized ? '私钥文件的路径' : '导入记忆时：填上那把钥匙的路径';
   $('#km-export').disabled = !k.unlocked; $('#km-export').style.opacity = k.unlocked ? 1 : 0.4;
   $('#km-err').textContent = '';
   keyModal.classList.add('show');
@@ -1008,6 +1008,21 @@ $('#km-ok').onclick = async () => {
   } catch (e) { $('#km-err').textContent = e.message; }
 };
 $('#km-export').onclick = () => { if (S.key.unlocked) location.href = 'api/export'; };
+// 导入记忆文件（.fmn）：只有导出它时用的那把钥匙才能导进来
+async function importMemories(file) {
+  try {
+    const bundle = JSON.parse(await file.text());
+    const r = await api('api/import', { method: 'POST', body: { bundle, key_path: $('#km-path').value.trim() || undefined } });
+    await loadBrain(); if (keyModal.classList.contains('show')) openKey();
+    corePulse = 1.4; burst(new THREE.Vector3(), '#f3d9a4', 120, 4);
+    toast(`<b>导入</b>放回了 ${r.added} 段记忆`, '#f3d9a4');
+  } catch (e) {
+    const msg = e.status === 403 ? '要用导出这份记忆时的那把钥匙：先在下面填上它的路径' : e.message;
+    if (keyModal.classList.contains('show')) $('#km-err').textContent = msg; else { openKey(); $('#km-err').textContent = msg; }
+  }
+}
+$('#km-import').onchange = e => e.target.files[0] && importMemories(e.target.files[0]);
+addEventListener('drop', e => { const f = [...(e.dataTransfer?.files || [])].find(x => /\.fmn$/i.test(x.name)); if (f) { e.preventDefault(); importMemories(f); } });
 // 钥匙随时可能被拿走或放回：定时看一眼
 setInterval(async () => {
   try {

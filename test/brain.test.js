@@ -141,3 +141,18 @@ test('HTTP：钥匙不在时什么都看不到、改不了', async () => {
     assert.equal(upd.body.content, '改过的记忆')
   } finally { srv.close() }
 })
+
+test('免疫系统·禁忌：过敏这类事永远不会遗忘，并且每次都自动带上', async () => {
+  const { brain } = fresh()
+  const t0 = Date.now() / 1000 - 400 * 86400
+  const r = await callTool(brain, 'memory_remember', { content: '阿遥对芒果过敏，吃了会起疹子', region: '过敏', importance: 1 })
+  assert.equal(r.memory.region, 'immune')
+  assert.match(r.note, /永远不会遗忘/)
+  await brain.remember({ content: '阿遥对花生过敏', region: 'immune', importance: 0.95, created_at: t0, last_access: t0, _log: false })
+  await brain.remember({ content: '阿遥一年前喜欢的一首歌', region: 'auditory', importance: 1, created_at: t0, last_access: t0, _log: false })
+  const faded = brain.maintain()
+  assert.equal(faded.length, 1, '一年没想起的普通记忆会被遗忘，过敏不会')
+  const wake = await callTool(brain, 'memory_wake', {})
+  assert.equal(wake.always_remember.length, 2)
+  assert.ok(wake.always_remember.some(c => c.includes('花生')))
+})

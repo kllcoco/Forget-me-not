@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { makeCore, makeStars } from './ring.js';
 
 // 公转顺序（由内到外）和起始相位
-const ORDER = ['input', 'hippocampus', 'retrieval', 'metabolism', 'working', 'limbic', 'expression', 'social', 'life', 'introspect', 'visual', 'auditory', 'longterm'];
+const ORDER = ['input', 'hippocampus', 'retrieval', 'metabolism', 'immune', 'working', 'limbic', 'expression', 'social', 'life', 'introspect', 'visual', 'auditory', 'longterm'];
 const PHASE = Object.fromEntries(ORDER.map((k, i) => [k, (i * 2.399963) % (Math.PI * 2)]));   // 黄金角错开
 const PROCESS = new Set(['input', 'hippocampus', 'retrieval', 'metabolism']);
 const FLOWS = [
@@ -14,7 +14,7 @@ const FLOWS = [
   ['hippocampus', 'life'], ['hippocampus', 'working'], ['hippocampus', 'expression'], ['hippocampus', 'introspect'],
   ['hippocampus', 'visual'], ['hippocampus', 'auditory'], ['retrieval', 'longterm'], ['retrieval', 'limbic'],
   ['retrieval', 'social'], ['retrieval', 'expression'], ['retrieval', 'introspect'], ['metabolism', 'longterm'],
-  ['metabolism', 'working'], ['metabolism', 'life'],
+  ['metabolism', 'working'], ['metabolism', 'life'], ['hippocampus', 'immune'], ['retrieval', 'immune'],
 ];
 const SPEED = 0.55;    // 整体公转速度
 

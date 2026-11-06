@@ -93,7 +93,7 @@
 <div id="guide" class="ui"></div>
 
 <div class="modal" id="keymodal">
-  <div class="panel">
+  <div class="panel" style="width:min(500px,94vw)">
     <h4>超级管理员钥匙</h4>
     <p class="sub" id="km-sub"></p>
     <div class="keystate" id="km-state"></div>
@@ -101,6 +101,7 @@
     <div class="err" id="km-err"></div>
     <div class="row">
       <button class="chip" id="km-export">导出记忆</button>
+      <label class="chip" style="cursor:pointer">导入记忆<input type="file" id="km-import" accept=".fmn,application/json" hidden></label>
       <span style="flex:1"></span>
       <button class="chip" id="km-cancel">关闭</button>
       <button class="chip on" id="km-ok">保存路径</button>

@@ -108,7 +108,7 @@ export function makeDust(count = 26000) {
         float t = aT + uTime * aSpeed;
         float s = mod(aT - 1.5707963 + TAU, TAU) / TAU;               // 揭幕顺序：从星核出发绕一圈
         float appear = clamp((uReveal * 1.08 - s) * 9.0, 0.0, 1.0);
-        float head = smoothstep(0.06, 0.0, abs(uReveal * 1.08 - s)) * step(uReveal, 0.999);
+        float head = (1.0 - smoothstep(0.0, 0.06, abs(uReveal * 1.08 - s))) * step(uReveal, 0.999);
         vec3 p = ringPos(t, aOff);
         p = mix(aScatter, p, appear * appear * (3.0 - 2.0 * appear));
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -117,7 +117,7 @@ export function makeDust(count = 26000) {
         vec3 ice = mix(vec3(0.78, 0.86, 1.0), vec3(1.0, 0.93, 0.86), step(0.93, aPhase));
         vec3 col = ice;
         for (int i = 0; i < ${MAX_REGIONS}; i++) {
-          float w = smoothstep(uRT[i].x, uRT[i].x + 0.08, tt) * smoothstep(uRT[i].y, uRT[i].y - 0.08, tt);
+          float w = smoothstep(uRT[i].x, uRT[i].x + 0.08, tt) * (1.0 - smoothstep(uRT[i].y - 0.08, uRT[i].y, tt));
           col = mix(col, uRC[i], w * uTint * 0.75);
         }
         float tw = 0.65 + 0.35 * sin(uTime * (1.2 + aPhase * 2.4) + aPhase * 40.0);
@@ -129,7 +129,7 @@ export function makeDust(count = 26000) {
       varying vec3 vColor; varying float vAlpha;
       void main(){
         vec2 uv = gl_PointCoord - 0.5; float d = length(uv) * 2.0;
-        float a = (exp(-d * d * 9.0) + exp(-d * d * 2.5) * 0.25) * vAlpha;
+        float a = (exp(-d * d * 9.0) + exp(-d * d * 2.5) * 0.25) * vAlpha * (1.0 - smoothstep(0.6, 1.0, d));
         if (a < 0.004) discard;
         gl_FragColor = vec4(vColor * a, a);
       }`,
@@ -166,7 +166,7 @@ export function makeStars(capacity = 4096) {
         float tw = 0.78 + 0.22 * sin(uTime * (1.4 + aPhase) + aPhase * 50.0);
         vec3 c = mix(vec3(0.86, 0.91, 1.0), aColor, 0.25 + uTint * 0.7);
         if (aState > 0.5) c = mix(c, vec3(0.42, 0.47, 0.6), 0.72);
-        vColor = c * (1.0 + aHi * 1.8);
+        vColor = c * (1.0 + aHi * 0.55);   // 高亮时别太亮：太亮的点会被泛光后期糊成一个方块
         vImg = aImg; vHi = aHi;
         float dim = mix(1.0, 0.35, uDim * (1.0 - aHi));
         vAlpha = (aState > 0.5 ? 0.42 : 1.0) * tw * aAppear * reveal * dim;
@@ -176,11 +176,12 @@ export function makeStars(capacity = 4096) {
       varying vec3 vColor; varying float vAlpha, vImg, vHi;
       void main(){
         vec2 uv = gl_PointCoord - 0.5; float d = length(uv) * 2.0;
-        float core = exp(-d * d * 22.0) * 1.3;
+        float core = exp(-d * d * 22.0) * 1.05;
         float halo = exp(-d * d * 4.0) * 0.32;
-        float ring = vImg * smoothstep(0.06, 0.0, abs(d - 0.62)) * 0.5;
+        float ring = vImg * (1.0 - smoothstep(0.0, 0.06, abs(d - 0.62))) * 0.5;
         float cross = vHi * (exp(-abs(uv.x) * 60.0) * exp(-abs(uv.y) * 4.0) + exp(-abs(uv.y) * 60.0) * exp(-abs(uv.x) * 4.0)) * 0.9;
-        float a = (core + halo + ring + cross) * vAlpha;
+        // 光晕在方形边缘之前完全淡出，否则放大时会看到一个方框
+        float a = (core + halo + ring) * vAlpha * (1.0 - smoothstep(0.6, 1.0, d)) + cross * vAlpha * (1.0 - smoothstep(0.8, 1.0, max(abs(uv.x), abs(uv.y)) * 2.0));
         if (a < 0.004) discard;
         gl_FragColor = vec4(vColor * a, a);
       }`,
@@ -204,7 +205,7 @@ export function makeFx(capacity = 6000) {
         vColor = aColor; vAlpha = aAlpha; gl_PointSize = clamp(aSize * uPixel * (60.0 / -mv.z), 0.0, 80.0); }`,
     fragmentShader: /* glsl */`
       varying vec3 vColor; varying float vAlpha;
-      void main(){ vec2 uv = gl_PointCoord - 0.5; float d = length(uv)*2.0; float a = (exp(-d*d*10.0) + exp(-d*d*2.5)*0.3) * vAlpha;
+      void main(){ vec2 uv = gl_PointCoord - 0.5; float d = length(uv)*2.0; float a = (exp(-d*d*10.0) + exp(-d*d*2.5)*0.3) * vAlpha * (1.0 - smoothstep(0.6, 1.0, d));
         if (a < 0.004) discard; gl_FragColor = vec4(vColor * a, a); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
@@ -307,7 +308,7 @@ export function makeSky() {
     vertexShader: /* glsl */`attribute float aSize, aPhase; attribute vec3 aColor; uniform float uTime, uPixel, uFade; varying float vA; varying vec3 vC;
       void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * mv; vC = aColor;
         vA = (0.45 + 0.55 * sin(uTime * (0.4 + aPhase) + aPhase * 30.0)) * uFade; gl_PointSize = aSize * uPixel; }`,
-    fragmentShader: /* glsl */`varying float vA; varying vec3 vC; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-d*d*6.0) * vA * 0.7; gl_FragColor = vec4(vC * a, a); }`,
+    fragmentShader: /* glsl */`varying float vA; varying vec3 vC; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-d*d*6.0) * vA * 0.7 * (1.0 - smoothstep(0.6, 1.0, d)); gl_FragColor = vec4(vC * a, a); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   const stars = new THREE.Points(g, m); group.add(stars);
