@@ -9,6 +9,7 @@ import { A, TAU, MAX_REGIONS, frame, makeCore, makeDust, makeFx, makeSky, makeSt
 import { paint, paintSealed } from './painter.js';
 import { createBrainMap, hubPos } from './brainmap.js';
 import { createMusic } from './music.js';
+import { createGalaxy } from './galaxy.js';
 
 const $ = s => document.querySelector(s);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -66,11 +67,13 @@ const stars = makeStars(); scene.add(stars);
 const fx = makeFx(); scene.add(fx.points);
 const core = makeCore(); scene.add(core.group);
 const brain = createBrainMap(scene);
+const galaxy = createGalaxy(scene);
+let galaxyFade = 0;
 const ringObjs = [dust, stars, core.group];
 
 const pixelUniforms = () => {
   const px = renderer.getPixelRatio() * (innerHeight / 900);
-  for (const m of [dust.material, stars.material, fx.points.material, sky.mat, brain.stars.material]) m.uniforms.uPixel.value = m === sky.mat ? renderer.getPixelRatio() : px;
+  for (const m of [dust.material, stars.material, fx.points.material, sky.mat, brain.stars.material, ...galaxy.materials]) m.uniforms.uPixel.value = m === sky.mat ? renderer.getPixelRatio() : px;
 };
 pixelUniforms();
 addEventListener('resize', () => {
@@ -991,6 +994,10 @@ function tick() {
   dust.material.uniforms.uBright.value = S.view === 'brain' ? 0.5 : lerp(1, 0.55, smooth(14, 4, dist));
   if (S.view === 'brain') dust.material.uniforms.uTint.value = 0.55;
   for (const m of [dust.material, stars.material, sky.mat]) m.uniforms.uTime.value = time;
+  // 星河内部的群星风暴：进脑图时慢慢亮起来，回到星环时慢慢隐去
+  galaxyFade = lerp(galaxyFade, S.view === 'brain' ? 1 : 0, 1 - Math.exp(-dt * 0.9));
+  galaxy.update(time, galaxyFade);
+  sky.mat.uniforms.uFade.value = S.mode === 'intro' ? sky.mat.uniforms.uFade.value : 1 - 0.6 * galaxyFade;
   if (S.view === 'brain') {
     brain.update(time, S.memories, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)));
     brain.stars.material.uniforms.uDim.value = stars.material.uniforms.uDim.value;
