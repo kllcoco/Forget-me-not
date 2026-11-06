@@ -224,7 +224,7 @@ test('人设卡自动同步：勿忘我的人设卡写进 Aurabot 人格并切�
   let r = syncPersona(io)
   assert.ok(r.synced && r.switched); assert.equal(cfg.persona.current, PERSONA_ID)
   const md = fs2.readFileSync(path2.join(dataDir, 'personas', PERSONA_ID + '.md'), 'utf8')
-  assert.match(md, /^---\nname: 绯语/); assert.match(md, /雾蓝色/); assert.match(md, /宝宝: 你好/); assert.ok(!/\{\{|<START>/.test(md))
+  assert.match(md, /^---\nname: 绯语/); assert.match(md, /雾蓝色/); assert.ok(!/<START>|宝宝: 你好|\{\{/.test(md), '示例对话不带进 QQ 人设'); assert.match(md, /每次回复只说一两句话/)
   // 用户在 Aurabot 里换回别的人格：卡没变就不改回来
   cfg = { ...cfg, persona: { current: 'dafeiyu' } }
   r = syncPersona(io); assert.equal(r.switched, false); assert.equal(cfg.persona.current, 'dafeiyu')

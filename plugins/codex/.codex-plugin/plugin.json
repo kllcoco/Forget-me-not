@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "forget-me-not",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "勿忘我：封存式长期记忆——自动总结对话、联想召回、艾宾浩斯遗忘、可塑性性格与人设卡，附 3D 莫比乌斯记忆星环。",
   "author": {
     "name": "kllcoco",
