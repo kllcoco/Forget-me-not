@@ -1,6 +1,6 @@
 {
   "name": "dsh-forget-me-not",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "勿忘我：给任何 LLM 用的封存式记忆大脑——艾宾浩斯遗忘、联想召回、可塑性性格、自动总结，附 3D 莫比乌斯记忆星环与脑图。DeepSeek Harness 插件 / MCP / REST",
   "type": "module",
   "main": "lib/index.js",
