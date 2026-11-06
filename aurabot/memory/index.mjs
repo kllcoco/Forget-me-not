@@ -10,6 +10,8 @@ import { openBrain, listCharacters, createCharacter } from '../../lib/core/chara
 import { digest, looksImportant } from '../../lib/core/digest.js'
 import { parseJson } from '../../lib/core/llm.js'
 import { readPeople, readPerson, writePerson, personLine } from '../../lib/core/people.js'
+import { syncPersona } from '../persona-sync.mjs'
+import { aurabotDataDir } from '../../lib/aurabot-install.js'
 
 export const SHARED = Symbol.for('forget-me-not')
 export const GUEST_NAME = 'QQ 群友'
@@ -336,11 +338,12 @@ export default {
   api: 1,
   description: '用勿忘我当她的记忆：主人私聊进主大脑，群友进「QQ 群友」角色，加密封存',
   tab: 'mood',
-  defaults: { home: '', idleMinutes: 5, groupLines: 20 },
+  defaults: { home: '', idleMinutes: 5, groupLines: 20, syncPersona: true },
   settings: [
     { key: 'home', label: '勿忘我数据目录', type: 'text', hint: '留空 = 和 dsh 里的勿忘我插件同一个（默认 ~/.forget-me-not）' },
     { key: 'idleMinutes', label: '安静几分钟后整理', type: 'number', min: 1, max: 120, step: 1 },
     { key: 'groupLines', label: '群里攒几条整理一次', type: 'number', min: 5, max: 80, step: 1 },
+    { key: 'syncPersona', label: '人设跟着勿忘我走', type: 'boolean', hint: '在记忆星环的心核里换了人设卡，这里的人格自动更新并切换过去' },
   ],
   setup(api) {
     const hub = api.core?.hub
@@ -360,6 +363,16 @@ export default {
       } catch { return content }
     })
     api.every(60_000, () => mem.tick(), '整理记忆（勿忘我）')
+    // 人设卡自动同步：勿忘我心核里的人设卡 → Aurabot 人格
+    const sync = () => {
+      if (api.settings?.()?.syncPersona === false || !api.core?.setConfig) return
+      try {
+        const r = syncPersona({ brain: mem.main(), dataDir: aurabotDataDir(), getConfig: api.core.getConfig || api.config, setConfig: api.core.setConfig })
+        if (r.switched) api.log?.info?.('人设已跟勿忘我同步，并切换成勿忘我的人设卡')
+        else if (r.synced) api.log?.info?.('人设已跟勿忘我同步')
+      } catch (e) { api.log?.warn?.(`同步人设失败：${e.message}`) }
+    }
+    sync(); api.every(60_000, sync, '同步人设（勿忘我）')
     api.tool(({ chat, sessionId }) => mem.tools({ chat, sessionId, defineTool: api.defineTool }))
     api.command?.({ name: '忘掉', aliases: ['忘记'], desc: '让她不再想起某件事（勿忘我是封存的：不会真的删除，是标成「已被取代」，彻底删除请用记忆星环）',
       run: async arg => {

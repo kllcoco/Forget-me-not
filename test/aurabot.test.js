@@ -208,3 +208,27 @@ test('dsh 插件：勿忘我记忆模块在跑时，Aurabot 会话里插件让�
   assert.equal(installAurabot({ dir }).backup, null)   // 再装一次：认得是自己的，不再备份
   assert.equal(uninstallAurabot({ dir }).removed, true)
 })
+
+test('人设卡自动同步：勿忘我的人设卡写进 Aurabot 人格并切换；卡没变时不反复切换', async () => {
+  const { syncPersona, renderPersona, PERSONA_ID } = await import('../aurabot/persona-sync.mjs')
+  const { Brain } = await import('../lib/core/brain.js')
+  const fs2 = await import('node:fs'), os2 = await import('node:os'), path2 = await import('node:path')
+  const tmp2 = () => fs2.mkdtempSync(path2.join(os2.tmpdir(), 'fmn-ps-'))
+  process.env.FMN_KEY_DIR = tmp2()
+  const brain = new Brain(tmp2()), dataDir = tmp2()
+  assert.equal(renderPersona({ name: 'TA' }), null)
+  await brain.remember({ content: '初始化', region: 'life' })
+  brain.setPersonaProfile({ name: '绯语', gender: '女', description: '雾蓝色长发的鲸娘', speaking_style: '<START>\n{{user}}: 你好\n{{char}}: 宝宝好～' })
+  let cfg = { ownerName: '宝宝', persona: { current: 'dafeiyu' } }
+  const io = { brain, dataDir, getConfig: () => cfg, setConfig: c => { cfg = c } }
+  let r = syncPersona(io)
+  assert.ok(r.synced && r.switched); assert.equal(cfg.persona.current, PERSONA_ID)
+  const md = fs2.readFileSync(path2.join(dataDir, 'personas', PERSONA_ID + '.md'), 'utf8')
+  assert.match(md, /^---\nname: 绯语/); assert.match(md, /雾蓝色/); assert.match(md, /宝宝: 你好/); assert.ok(!/\{\{|<START>/.test(md))
+  // 用户在 Aurabot 里换回别的人格：卡没变就不改回来
+  cfg = { ...cfg, persona: { current: 'dafeiyu' } }
+  r = syncPersona(io); assert.equal(r.switched, false); assert.equal(cfg.persona.current, 'dafeiyu')
+  // 勿忘我里换了新的人设卡：再同步并切过去
+  brain.setPersonaProfile({ name: '绯语', personality: '温柔贤惠' })
+  r = syncPersona(io); assert.ok(r.synced && r.switched); assert.equal(cfg.persona.current, PERSONA_ID)
+})

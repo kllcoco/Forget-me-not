@@ -875,7 +875,7 @@ async function importCard(file) {
     openPersonaEditor({
       name: d.name || d.char_name || '', gender: d.gender || d.extensions?.gender || ((d.tags || []).includes('女') ? '女' : (d.tags || []).includes('男') ? '男' : ''), title: firstLine(d.creator_notes).slice(0, 60) || (d.tags || []).slice(0, 3).join(' · '),
       description: d.description || d.char_persona || '', personality: d.personality || '', scenario: d.scenario || d.world_scenario || '',
-      speaking_style: d.mes_example || d.example_dialogue || '', first_mes: d.first_mes || d.char_greeting || '', avatar: avatar || undefined,
+      speaking_style: [d.system_prompt, d.mes_example || d.example_dialogue].filter(Boolean).join('\n\n'), first_mes: d.first_mes || d.char_greeting || '', avatar: avatar || undefined,
     });
   } catch (e) { toast(`<b>人设卡</b>读不出这张角色卡：${esc(e.message)}`, '#ff8fa6'); }
 }
