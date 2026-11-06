@@ -7,6 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { A, TAU, MAX_REGIONS, frame, makeCore, makeDust, makeFx, makeSky, makeStars, ringPos } from './ring.js';
 import { paint, paintSealed } from './painter.js';
+import { createBrainMap, hubPos } from './brainmap.js';
 
 const $ = s => document.querySelector(s);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -15,18 +16,15 @@ const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const hash = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return ((h >>> 0) % 100000) / 100000; };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const store = { get(k) { try { return sessionStorage.getItem(k); } catch { return null; } }, set(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { } } };
+const EMBED = new URLSearchParams(location.search).has('embed');
 
 // ------------------------------------------------------------------ API
-let token = store.get('fmn-token');
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
-  if (token) headers.Authorization = 'Bearer ' + token;
   let body = opts.body;
   if (body && typeof body !== 'string') { headers['Content-Type'] = 'application/json'; body = JSON.stringify(body); }
   const r = await fetch(path, { ...opts, headers, body });
   const j = await r.json().catch(() => ({}));
-  if (r.status === 401 && token) { token = null; store.set('fmn-token', null); }
   if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { status: r.status });
   return j;
 }
@@ -66,10 +64,12 @@ const dust = makeDust(innerWidth < 760 ? 15000 : 26000); scene.add(dust);
 const stars = makeStars(); scene.add(stars);
 const fx = makeFx(); scene.add(fx.points);
 const core = makeCore(); scene.add(core.group);
+const brain = createBrainMap(scene);
+const ringObjs = [dust, stars, core.group];
 
 const pixelUniforms = () => {
   const px = renderer.getPixelRatio() * (innerHeight / 900);
-  for (const m of [dust.material, stars.material, fx.points.material, sky.mat]) m.uniforms.uPixel.value = m === sky.mat ? renderer.getPixelRatio() : px;
+  for (const m of [dust.material, stars.material, fx.points.material, sky.mat, brain.stars.material]) m.uniforms.uPixel.value = m === sky.mat ? renderer.getPixelRatio() : px;
 };
 pixelUniforms();
 addEventListener('resize', () => {
@@ -79,7 +79,8 @@ addEventListener('resize', () => {
 
 // ------------------------------------------------------------------ 数据与布局
 const S = {
-  regions: [], regionBy: {}, memories: [], byId: new Map(), stats: {}, sealed: true, admin: { initialized: false, unlocked: false },
+  regions: [], regionBy: {}, memories: [], byId: new Map(), stats: {}, sealed: true, key: { initialized: false, unlocked: false },
+  links: [], adj: new Map(), persona: null, view: 'ring',
   lastEvent: 0, arcs: {}, organs: {}, mode: 'intro', hover: null, idleAt: 0, interacting: false,
 };
 
@@ -158,7 +159,8 @@ async function loadBrain(first = false) {
   const data = await api('api/brain');
   const prev = S.byId;
   S.regions = data.regions; S.regionBy = Object.fromEntries(data.regions.map(r => [r.key, r]));
-  S.stats = data.stats; S.sealed = data.sealed; S.admin = data.admin || S.admin; S.types = data.types;
+  S.stats = data.stats; S.sealed = data.sealed; S.key = data.key || S.key; S.types = data.types;
+  S.links = data.links || []; S.persona = data.persona;
   if (first) S.lastEvent = data.last_event;
   S.memories = data.memories.map(m => {
     const old = prev.get(m.id);
@@ -167,8 +169,10 @@ async function loadBrain(first = false) {
     return nm;
   });
   S.byId = new Map(S.memories.map(m => [m.id, m]));
+  S.adj = new Map(); for (const [a, b, w] of S.links) { (S.adj.get(a) || S.adj.set(a, []).get(a)).push([b, w]); (S.adj.get(b) || S.adj.set(b, []).get(b)).push([a, w]); }
   layoutArcs(); layoutMemories(); writeStarBuffers();
-  renderLegend(); renderStats(); buildLabels(); renderLock();
+  brain.layout(S.regionBy, S.memories, S.links, fx.points.material);
+  renderLegend(); renderStats(); buildLabels(); renderKey(); renderPersona();
   if (reel.on) refreshReelList();
 }
 
@@ -194,7 +198,12 @@ function buildLabels() {
       anchor = ORGAN_POS[r.key].clone().add(new THREE.Vector3(0, 0.75, 0));
     }
     labelsEl.appendChild(el);
-    labelEls.push({ el, anchor, region: r });
+    labelEls.push({ el, anchor, region: r, view: 'ring' });
+    // 脑图里的大字标签
+    const bel = el.cloneNode(true); bel.classList.remove('organ'); bel.classList.add('big');
+    bel.onclick = () => openRegion(r.key);
+    labelsEl.appendChild(bel);
+    labelEls.push({ el: bel, anchor: hubPos(r.key).add(new THREE.Vector3(0, r.key === 'longterm' ? 3.2 : 2.6, 0)), region: r, view: 'brain' });
   }
 }
 
@@ -209,12 +218,14 @@ function updateLabels(dist) {
   const base = smooth(80, 34, dist) * 0.9 + 0.1;
   const tmp = {};
   for (const L of labelEls) {
+    if (L.view !== S.view) { L.el.style.opacity = '0'; L.el.style.pointerEvents = 'none'; continue; }
     project(L.anchor, tmp);
     const d = camera.position.distanceTo(L.anchor);
-    let o = L.region.kind === 'process' ? smooth(30, 12, dist) * 0.85 : base * smooth(1.5, 5, d);
+    let o = L.view === 'brain' ? smooth(2, 8, d) * (L.region.kind === 'process' ? 0.8 : 1)
+      : L.region.kind === 'process' ? smooth(30, 12, dist) * 0.85 : base * smooth(1.5, 5, d);
     if (reel.on) o *= L.region.key === reel.region ? 1 : 0.12;
     if (!tmp.vis) o = 0;
-    const sc = clamp(26 / d, 0.55, 1.5);
+    const sc = clamp((L.view === 'brain' ? 46 : 26) / d, 0.55, 1.5);
     L.el.style.opacity = o.toFixed(3);
     L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, -50%) scale(${sc.toFixed(3)})`;
     L.el.style.pointerEvents = o > 0.3 ? 'auto' : 'none';
@@ -225,12 +236,15 @@ function updateLabels(dist) {
 function renderLegend() {
   const el = $('#legend');
   const mem = S.regions.filter(r => r.kind === 'memory'), proc = S.regions.filter(r => r.kind === 'process');
-  el.innerHTML = `<div class="head">脑 区</div>` +
+  el.innerHTML = `<div class="head">TA 的回忆</div>` +
     mem.map(r => `<button data-k="${r.key}" style="--c:${r.color}" class="${reel.on && reel.region === r.key ? 'on' : ''}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n">${r.count}</span></button>`).join('') +
     `<div class="sep"></div>` +
     proc.map(r => `<button class="proc" data-p="${r.key}" style="--c:${r.color}"><span class="dot"></span><span>${esc(r.name)}</span><span class="n"></span></button>`).join('');
   el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => openRegion(b.dataset.k));
-  el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => flyTo(ORGAN_POS[b.dataset.p].clone().add(new THREE.Vector3(6, 3, 8)), ORGAN_POS[b.dataset.p], 2.2));
+  el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
+    if (S.view === 'brain') { const h = hubPos(b.dataset.p); flyTo(h.clone().add(new THREE.Vector3(4, 3, 16)), h, 1.8); }
+    else flyTo(ORGAN_POS[b.dataset.p].clone().add(new THREE.Vector3(6, 3, 8)), ORGAN_POS[b.dataset.p], 2.2);
+  });
 }
 
 function ago(ts) {
@@ -241,7 +255,7 @@ function ago(ts) {
 }
 function renderStats() {
   const s = S.stats;
-  $('#stats').innerHTML = `记忆 <b>${s.active}</b><i>·</i>归档 <b>${s.archived}</b><i>·</i>配图 <b>${s.with_image}</b><i>·</i>最近回想 <b>${ago(s.last_recall)}</b>`;
+  $('#stats').innerHTML = `还记得 <b>${s.active}</b><i>·</i>已遗忘 <b>${s.archived}</b><i>·</i>关联 <b>${S.links.length}</b><i>·</i>最近回想 <b>${ago(s.last_recall)}</b>`;
 }
 
 // ------------------------------------------------------------------ 镜头飞行（过场）
@@ -276,21 +290,51 @@ const reel = { on: false, list: [], i: 0, playing: true, t: 0, dur: 4, region: n
 const card = $('#card'), wires = $('#wires');
 const cardPos = { x: innerWidth / 2, y: innerHeight / 2, w: 340, h: 300, init: false };
 
+const posOf = m => (S.view === 'brain' ? m.bpos : m.pos) || m.pos;
+const tgtOf = m => (S.view === 'brain' ? m.bpos : m.target) || m.target;
 function camFor(m) {
+  if (S.view === 'brain') {
+    const dir = camera.position.clone().sub(controls.target); dir.y = Math.max(dir.y, 2); dir.setLength(15);
+    return m.bpos.clone().add(dir);
+  }
   const { T, N } = frame(m.t);
   const out = N.clone(); if (out.dot(new THREE.Vector3(m.target.x, 0, m.target.z)) < 0) out.negate();
   return m.target.clone().addScaledVector(out, 4.6).addScaledVector(T, -1.2).add(new THREE.Vector3(0, 2.1, 0));
 }
 
+/** 一颗星和它关联的记忆（最多两跳），按关联度排好——联想式的走马灯。 */
+function chainOf(m) {
+  const out = [m], seen = new Set([m.id]);
+  let frontier = [m.id];
+  for (let d = 0; d < 2 && out.length < 14; d++) {
+    const next = [];
+    for (const id of frontier) for (const [b] of (S.adj.get(id) || []).slice().sort((x, y) => y[1] - x[1])) {
+      if (seen.has(b) || out.length >= 14) continue; seen.add(b); const mm = S.byId.get(b); if (mm) { out.push(mm); next.push(b); }
+    }
+    frontier = next;
+  }
+  return out;
+}
+function startChain(m) {
+  reel.chain = m.id; reel.region = m.region; reel.on = true;
+  reel.list = chainOf(m); reel.i = 0; reel.playing = true; reel.t = 0; reel.follow = false; hideHint();
+  S.mode = 'reel'; document.body.classList.add('reel', 'cinema');
+  controls.autoRotate = false; $('#rot').classList.remove('on');
+  card.classList.remove('show');
+  flyTo(camFor(m), tgtOf(m), 1.4, { cinema: true, warp: false, done: () => { reel.follow = true; showCard(true); } });
+  setReelTitle(); renderStrip(); updatePlayIcon();
+}
+
 function refreshReelList() {
   const cur = reel.list[reel.i];
-  reel.list = S.memories.filter(m => m.region === reel.region).sort((a, b) => sortKey(a) - sortKey(b));
+  if (reel.chain) { const m = S.byId.get(reel.chain); reel.list = m ? chainOf(m) : []; }
+  else reel.list = S.memories.filter(m => m.region === reel.region).sort((a, b) => sortKey(a) - sortKey(b));
   if (cur) reel.i = Math.max(0, reel.list.findIndex(m => m.id === cur.id));
   renderStrip();
 }
 
 function startReel(region, startId, { cinematic = true } = {}) {
-  reel.region = region; reel.on = true; reel.list = [];
+  reel.region = region; reel.on = true; reel.list = []; reel.chain = null;
   refreshReelList();
   if (!reel.list.length) { reel.on = false; toast(`${S.regionBy[region].name} 里还没有记忆`, S.regionBy[region].color); return; }
   reel.i = startId ? Math.max(0, reel.list.findIndex(m => m.id === startId)) : 0;
@@ -300,7 +344,7 @@ function startReel(region, startId, { cinematic = true } = {}) {
   renderLegend();
   const m = reel.list[reel.i];
   const go = () => { reel.follow = true; showCard(true); };
-  if (cinematic) { card.classList.remove('show'); flyTo(camFor(m), m.target, 2.6, { cinema: true, done: go }); }
+  if (cinematic) { card.classList.remove('show'); flyTo(camFor(m), tgtOf(m), S.view === 'brain' ? 1.6 : 2.6, { cinema: true, done: go }); }
   else go();
   setReelTitle(); renderStrip(); updatePlayIcon();
 }
@@ -312,7 +356,7 @@ function exitReel() {
   card.classList.remove('show'); wires.innerHTML = '';
   renderLegend();
   const d = camera.position.distanceTo(controls.target);
-  if (d < 14) flyTo(HOME.pos, HOME.target, 2.4);
+  if (S.view === 'ring' && d < 14) flyTo(HOME.pos, HOME.target, 2.4);
   S.idleAt = performance.now() + 4000;
 }
 
@@ -327,7 +371,8 @@ function durFor(m) { return 3.4 + m.importance * 2.6 + (m.has_image ? 1.4 : 0) +
 function setReelTitle() {
   const r = S.regionBy[reel.region];
   $('#reeltitle').style.setProperty('--c', r.color);
-  $('#reeltitle').innerHTML = `走马灯 · <b>${esc(r.name)}</b><span>${reel.i + 1} / ${reel.list.length}</span>`;
+  const head = reel.chain ? `联想 · <b>${esc(S.sealed ? '一串关联的记忆' : (S.byId.get(reel.chain)?.title || '关联记忆'))}</b>` : `走马灯 · <b>${esc(r.name)}</b>`;
+  $('#reeltitle').innerHTML = `${head}<span>${reel.i + 1} / ${reel.list.length}</span>`;
   $('#reelbar').style.setProperty('--c', r.color);
 }
 
@@ -346,7 +391,7 @@ function renderStrip() {
   });
 }
 
-function mediaUrl(m) { return token ? `api/media/${m.id}?token=${encodeURIComponent(token)}` : null; }
+function mediaUrl(m) { return S.sealed ? null : `api/media/${m.id}`; }
 function picOf(m, w, h) {
   if (m.image_kind === 'photo') return mediaUrl(m);
   if (m.image_prompt) return paint(m, w, h);
@@ -370,8 +415,8 @@ function cardHTML(m) {
     const pic = m.has_image ? `<div class="pic blur"><img src="${paintSealed(m, c)}" alt=""><span class="stamp">No.${no}</span></div>` : '';
     return `<div class="frame" style="--c:${c}">${pic}<div class="body">
       <div class="meta"><span class="rg">${esc(r.name)}</span><span class="sep">/</span>${esc(S.types?.[m.type] || '')}<span class="sep">/</span>${date}</div>
-      <div class="sealed"><div class="seal">封</div><p>这段记忆已被加密封存<br>只有超级管理员凭密码可以打开</p>
-      <button class="chip" data-act="unlock">解 封</button></div></div></div>`;
+      <div class="sealed"><div class="seal">封</div><p>${S.key.initialized ? '这段记忆被锁着<br>超级管理员钥匙不在登记的位置' : '这段记忆已被加密封存'}</p>
+      <button class="chip" data-act="key">钥 匙</button></div></div></div>`;
   }
   const src = picOf(m);
   const pic = src ? `<div class="pic"><img src="${src}" alt=""><span class="stamp">No.${no} · ${m.image_kind === 'photo' ? 'moment' : 'dream'}</span></div>` : '';
@@ -381,10 +426,22 @@ function cardHTML(m) {
     <h3>${esc(m.title || m.content.slice(0, 12))}</h3>
     <p>${esc(m.content)}</p>
     <div class="foot">${m.emotion ? `<span class="tag emo">${esc(m.emotion)}</span>` : ''}${tags}
-      ${m.status === 'archived' ? '<span class="archived">已淡忘</span>' : ''}
+      ${m.status === 'archived' ? '<span class="archived">已遗忘 · 可召回</span>' : `<span class="left">还会记得约 ${daysLeft(m)} 天</span>`}
       <span class="imp" title="重要性 ${m.importance}"><i style="width:${Math.round(m.importance * 100)}%"></i></span></div>
-    ${S.admin.unlocked ? `<div class="admin"><button data-act="edit">修改</button><button data-act="archive">${m.status === 'archived' ? '唤醒' : '淡忘'}</button><button class="danger" data-act="delete">彻底删除</button></div>` : ''}
+    ${assocHTML(m)}
+    <div class="admin"><button data-act="edit">修改</button><button data-act="archive">${m.status === 'archived' ? '召回' : '遗忘'}</button><button class="danger" data-act="delete">彻底删除</button></div>
   </div></div>`;
+}
+
+// 艾宾浩斯：R = e^(-t/S)，强度降到 0.12 就遗忘；算出还剩几天。
+function daysLeft(m) {
+  const S_ = (m.forget_in_days || 30) / Math.log(1 / 0.12) * 1.6 ** Math.min(m.access_count || 0, 6);
+  return Math.max(0, Math.round(S_ * Math.log((m.strength || 1) / 0.12)));
+}
+function assocHTML(m) {
+  const list = (S.adj.get(m.id) || []).slice().sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id]) => S.byId.get(id)).filter(Boolean);
+  if (!list.length) return '';
+  return `<div class="assoc">关联 ${list.map(x => `<button data-go="${x.id}" style="--c:${x.color.getStyle()}">${esc(x.title || x.content.slice(0, 10))}</button>`).join('')}</div>`;
 }
 
 function showCard(swap) {
@@ -393,18 +450,19 @@ function showCard(swap) {
   card.classList.add('show');
   if (swap) { card.classList.remove('swap'); void card.offsetWidth; card.classList.add('swap'); }
   card.querySelectorAll('[data-act]').forEach(b => b.onclick = e => { e.stopPropagation(); cardAction(b.dataset.act, m); });
+  card.querySelectorAll('[data-go]').forEach(b => b.onclick = e => { e.stopPropagation(); const x = S.byId.get(b.dataset.go); if (x) startChain(x); });
   reel.dur = durFor(m);
   // 星光一闪
   for (let i = 0; i < 26; i++) {
     const a = Math.random() * TAU, b = Math.acos(2 * Math.random() - 1), sp = 0.6 + Math.random() * 1.4;
-    fx.spawn({ p: m.target.clone(), v: new THREE.Vector3(Math.sin(b) * Math.cos(a), Math.cos(b), Math.sin(b) * Math.sin(a)).multiplyScalar(sp), c: m.color.clone().lerp(new THREE.Color(1, 1, 1), 0.5), size: 1.3, max: 1.2 + Math.random(), drag: 0.95 });
+    fx.spawn({ p: tgtOf(m).clone(), v: new THREE.Vector3(Math.sin(b) * Math.cos(a), Math.cos(b), Math.sin(b) * Math.sin(a)).multiplyScalar(sp), c: m.color.clone().lerp(new THREE.Color(1, 1, 1), 0.5), size: 1.3, max: 1.2 + Math.random(), drag: 0.95 });
   }
 }
 
 function placeCard(dt) {
   const m = reel.list[reel.i];
   if (!reel.on || !m || !card.classList.contains('show')) { wires.innerHTML = ''; return; }
-  const p = project(m.pos);
+  const p = project(posOf(m));
   const w = card.offsetWidth || 340, h = card.offsetHeight || 300;
   let x = p.x + 90, y = p.y - h * 0.42, side = 1;
   if (x + w > innerWidth - 24) { x = p.x - 90 - w; side = -1; }
@@ -438,13 +496,89 @@ $('#next').onclick = () => reelGo(1);
 $('#play').onclick = () => { reel.playing = !reel.playing; updatePlayIcon(); };
 $('#exit').onclick = exitReel;
 addEventListener('keydown', e => {
+  if (e.key === 'Escape') { onEscape(); return; }
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (S.mode === 'intro') { finishIntro(); return; }
   if (!reel.on) return;
   if (e.key === 'ArrowRight') reelGo(1); else if (e.key === 'ArrowLeft') reelGo(-1);
   else if (e.key === ' ') { reel.playing = !reel.playing; updatePlayIcon(); e.preventDefault(); }
-  else if (e.key === 'Escape') exitReel();
 });
+
+// ------------------------------------------------------------------ 全屏：Esc 才退出
+function goFullscreen() {
+  if (EMBED) { parent.postMessage({ type: 'fmn:fullscreen' }, location.origin); return; }
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => { });
+}
+function onEscape() {
+  if ([...document.querySelectorAll('.modal.show')].length) { document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show')); return; }
+  if (EMBED) { parent.postMessage({ type: 'fmn:escape' }, location.origin); return; }
+  // 独立页面：浏览器自己会用 Esc 退出全屏；不在全屏时，Esc 一层层往外退
+  if (reel.on) exitReel(); else if (S.view === 'brain') exitBrain();
+}
+$('#fsbtn').onclick = goFullscreen;
+if (!EMBED) addEventListener('pointerdown', function once() { removeEventListener('pointerdown', once); goFullscreen(); });
+addEventListener('message', e => { if (e.origin === location.origin && e.data?.type === 'fmn:fullscreen-state') document.body.classList.toggle('full', !!e.data.full); });
+
+// ------------------------------------------------------------------ 多级缩放：星环 ⇄ 脑图
+const BRAIN_HOME = { pos: new THREE.Vector3(0, 8, 64), target: new THREE.Vector3(3, -1, 0) };
+let swapping = false;
+function setView(v) {
+  S.view = v;
+  for (const o of ringObjs) o.visible = v === 'ring';
+  if (organs) organs.visible = v === 'ring';
+  brain.group.visible = v === 'brain';
+  document.body.classList.toggle('brain', v === 'brain');
+  $('#brainbtn').classList.toggle('on', v === 'brain');
+  $('#title').innerHTML = v === 'brain' ? 'TA的回忆<small>· 脑图</small>' : '勿忘我<small>Forget-me-not</small>';
+  $('#poem').textContent = v === 'brain' ? '多层记忆架构：每一团星是一个脑区，线是记忆之间的关联与数据流' : '把她留在时间里的痕迹，延长得再久一些';
+  controls.maxDistance = v === 'brain' ? 140 : 110;
+  renderLegend();
+}
+function flash(peakAt, fn) {
+  const w = $('#whiteout'); w.style.transition = 'opacity .45s'; w.style.opacity = '0.9';
+  setTimeout(() => { fn(); w.style.transition = 'opacity 1.1s'; w.style.opacity = '0'; }, peakAt);
+}
+function enterBrain() {
+  if (swapping || S.view === 'brain') return; swapping = true;
+  if (reel.on) exitReel();
+  controls.autoRotate = false; $('#rot').classList.remove('on');
+  flash(420, () => {
+    setView('brain');
+    camera.position.set(0, 2, 6); controls.target.set(0, 0, 0); camera.lookAt(0, 0, 0);
+    flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 2.2, { warp: true, done: () => { swapping = false; S.idleAt = performance.now(); } });
+  });
+}
+function exitBrain() {
+  if (swapping || S.view !== 'brain') return; swapping = true;
+  if (reel.on) exitReel();
+  flyTo(new THREE.Vector3(0, 4, 150), BRAIN_HOME.target, 0.9, { warp: true });
+  flash(520, () => {
+    flight = null; setView('ring');
+    camera.position.set(0.5, 0.5, 2.6); controls.target.set(0, 0, 0); camera.lookAt(0, 0, 0);
+    flyTo(HOME.pos, HOME.target, 2.4, { warp: true, done: () => { swapping = false; controls.autoRotate = true; $('#rot').classList.add('on'); S.idleAt = performance.now(); } });
+  });
+}
+
+// ------------------------------------------------------------------ 性格养成面板（脑图里）
+function renderPersona() {
+  const el = $('#persona');
+  if (!S.persona) { el.innerHTML = `<h5>TA 的性格</h5><div class="sub">可塑 · 养成中</div><div class="locked">${S.key.initialized ? '钥匙不在，性格也被锁着。' : '还没有任何经历。'}</div>`; return; }
+  const T = S.persona.traits, n = T.length, cx = 150, cy = 108, R0 = 78;
+  const pt = (i, v) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return [cx + Math.cos(a) * R0 * v, cy + Math.sin(a) * R0 * v]; };
+  const poly = vals => vals.map((v, i) => pt(i, v).map(x => x.toFixed(1)).join(',')).join(' ');
+  const rings = [0.25, 0.5, 0.75, 1].map(k => `<polygon points="${poly(T.map(() => k))}" fill="none" stroke="rgba(200,214,255,.10)"/>`).join('');
+  const axes = T.map((t, i) => { const [x, y] = pt(i, 1); const [lx, ly] = pt(i, 1.2); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="rgba(200,214,255,.08)"/><text x="${lx}" y="${ly + 3}" text-anchor="middle">${t.name}</text>`; }).join('');
+  const hist = (S.persona.history || []).slice(0, 3).map(h => {
+    const t = T.find(x => x.key === h.trait);
+    return `<li><b>${t?.name || h.trait}</b><span class="${h.delta > 0 ? 'up' : 'down'}">${h.delta > 0 ? '+' : ''}${h.delta}</span> ${esc(h.reason)}</li>`;
+  }).join('');
+  el.innerHTML = `<h5>TA 的性格</h5><div class="sub">可塑 · 被经历慢慢塑造</div>
+    <svg viewBox="0 0 300 220">${rings}${axes}
+      <polygon points="${poly(T.map(t => t.baseline))}" fill="none" stroke="rgba(200,214,255,.35)" stroke-dasharray="3 3"/>
+      <polygon points="${poly(T.map(t => t.value))}" fill="rgba(201,167,255,.18)" stroke="#c9a7ff" stroke-width="1.4" style="filter:drop-shadow(0 0 6px #c9a7ff)"/>
+      ${T.map((t, i) => { const [x, y] = pt(i, t.value); return `<circle cx="${x}" cy="${y}" r="2.4" fill="#fff"/>`; }).join('')}
+    </svg><ul>${hist}</ul>`;
+}
 
 function openRegion(key) {
   if (S.mode === 'intro') return;
@@ -460,14 +594,17 @@ renderer.domElement.addEventListener('pointerdown', e => { mouse.down = { x: e.c
 renderer.domElement.addEventListener('pointerup', e => {
   const d = mouse.down; mouse.down = null;
   if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || S.mode === 'intro') return;
-  if (S.hover) startReel(S.hover.region, S.hover.id, { cinematic: !(reel.on && reel.region === S.hover.region) });
+  if (!S.hover) return;
+  if (S.view === 'brain') startChain(S.hover);
+  else startReel(S.hover.region, S.hover.id, { cinematic: !(reel.on && reel.region === S.hover.region) });
 });
 
 function pick() {
   if (mouse.x < 0 || flight) { S.hover = null; return; }
   let best = null, bd = 18 * 18; const tmp = {};
   for (const m of S.memories) {
-    project(m.pos, tmp); if (!tmp.vis) continue;
+    if (!posOf(m)) continue;
+    project(posOf(m), tmp); if (!tmp.vis) continue;
     const d = (tmp.x - mouse.x) ** 2 + (tmp.y - mouse.y) ** 2;
     if (d < bd) { bd = d; best = m; }
   }
@@ -475,7 +612,7 @@ function pick() {
   if (best) {
     const r = S.regionBy[best.region];
     tip.style.setProperty('--c', r.color);
-    tip.innerHTML = `<b>${esc(r.name)}</b> · ${fmtDate(sortKey(best))}<br>${S.sealed || best.content == null ? '封存的记忆' : esc(best.title || best.content.slice(0, 28))}${best.status === 'archived' ? ' · <span style="opacity:.6">已淡忘</span>' : ''}`;
+    tip.innerHTML = `<b>${esc(r.name)}</b> · ${fmtDate(sortKey(best))}<br>${S.sealed || best.content == null ? '锁着的记忆' : esc(best.title || best.content.slice(0, 28))}${best.status === 'archived' ? ' · <span style="opacity:.6">已遗忘</span>' : ''}`;
     tip.style.left = mouse.x + 'px'; tip.style.top = mouse.y + 'px';
     tip.classList.add('show'); renderer.domElement.style.cursor = 'pointer';
   } else { tip.classList.remove('show'); renderer.domElement.style.cursor = ''; }
@@ -495,6 +632,9 @@ renderer.domElement.addEventListener('wheel', () => { S.idleAt = performance.now
 function autoReel(dist) {
   if (flight || S.mode === 'intro') return;
   const now = performance.now();
+  // 多级缩放：钻进星核 → 脑图；在脑图里拉得很远 → 回到星环
+  if (S.view === 'ring' && !reel.on && camera.position.length() < 4.2) { enterBrain(); return; }
+  if (S.view === 'brain') { if (!reel.on && dist > 92) exitBrain(); else if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) { reel.follow = true; reel.t = 0; } return; }
   if (reel.on && !reel.follow && dist > REEL_DIST * 1.9 && now - S.idleAt > 300) { exitReel(); return; }
   if (reel.on && !reel.follow && now - S.idleAt > 2600 && !S.interacting) {
     // 停下来不动一会儿 → 从视野中心最近的那颗星继续放映
@@ -508,7 +648,7 @@ function autoReel(dist) {
 }
 function nearestToTarget() {
   let best = null, bd = 1e9;
-  for (const m of S.memories) { const d = m.pos.distanceTo(controls.target); if (d < bd) { bd = d; best = m; } }
+  for (const m of S.memories) { const d = posOf(m).distanceTo(controls.target); if (d < bd) { bd = d; best = m; } }
   return best ? { m: best, d: bd } : null;
 }
 
@@ -534,7 +674,8 @@ function updateZoomUI(dist) {
 }
 
 $('#rot').onclick = e => { controls.autoRotate = !controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); };
-$('#reset').onclick = () => { exitReel(); flyTo(HOME.pos, HOME.target, 2.2); };
+$('#reset').onclick = () => { exitReel(); if (S.view === 'brain') flyTo(BRAIN_HOME.pos, BRAIN_HOME.target, 1.8); else flyTo(HOME.pos, HOME.target, 2.2); };
+$('#brainbtn').onclick = () => { if (S.view === 'brain') exitBrain(); else { exitReel(); flyTo(new THREE.Vector3(0.6, 0.6, 3), new THREE.Vector3(0, 0, 0), 2.0, { done: enterBrain }); } };
 
 const hintEl = $('#enter');
 hintEl.textContent = matchMedia('(pointer: coarse)').matches ? '双指放大 · 靠近星光开始放映' : '滚轮拉近 · 靠近星光开始放映';
@@ -572,6 +713,7 @@ function burst(p, color, n = 40, speed = 2) {
 }
 let corePulse = 0;
 
+const organ = k => S.view === 'brain' ? hubPos(k) : ORGAN_POS[k];
 function playEvent(ev) {
   const reg = S.regionBy;
   const mems = ev.memory_ids.map(id => S.byId.get(id)).filter(Boolean);
@@ -579,34 +721,43 @@ function playEvent(ev) {
     const m = mems[0]; if (!m) return;
     const r = reg[m.region];
     m.appear = 0;
-    comet(ORGAN_POS.input, ORGAN_POS.hippocampus, reg.input.color, { dur: 1.0, lift: 1.5,
-      onArrive: () => { burst(ORGAN_POS.hippocampus, reg.hippocampus.color, 30, 1.4);
-        comet(ORGAN_POS.hippocampus, m.target, r.color, { dur: 1.8, lift: 4, onArrive: () => { m.appear = 0.01; burst(m.target, r.color, 50, 1.8); } }); } });
+    comet(organ('input'), organ('hippocampus'), reg.input.color, { dur: 1.0, lift: 1.5,
+      onArrive: () => { burst(organ('hippocampus'), reg.hippocampus.color, 30, 1.4);
+        comet(organ('hippocampus'), tgtOf(m), r.color, { dur: 1.8, lift: 4, onArrive: () => { m.appear = 0.01; burst(tgtOf(m), r.color, 50, 1.8); } }); } });
     toast(`<b>海马体·写入</b>一段新的记忆进入「${esc(r.name)}」`, reg.hippocampus.color);
   } else if (ev.kind === 'recall') {
     corePulse = 1;
-    mems.forEach((m, i) => {
-      comet(ORGAN_POS.retrieval, m.target, reg.retrieval.color, { dur: 1.4 + i * 0.15, lift: 2.5, onArrive: () => { m.flash = 1; burst(m.target, m.color.getStyle(), 24, 1.2); } });
-    });
+    const direct = new Set(ev.direct || ev.memory_ids);
+    const heads = mems.filter(m => direct.has(m.id)), rest = mems.filter(m => !direct.has(m.id));
+    // 先从检索中枢射向直接想起的记忆，再顺着关联线一串串点亮
+    heads.forEach((m, i) => comet(organ('retrieval'), tgtOf(m), reg.retrieval.color, { dur: 1.3 + i * 0.12, lift: 2.5, onArrive: () => {
+      m.flash = 1; burst(tgtOf(m), m.color.getStyle(), 24, 1.2);
+      const near = rest.filter(x => (S.adj.get(m.id) || []).some(([b]) => b === x.id));
+      near.forEach((x, j) => comet(tgtOf(m), tgtOf(x), m.color.getStyle(), { dur: 0.9 + j * 0.1, lift: 1, trail: false, onArrive: () => { x.flash = 0.8; } }));
+    } }));
+    rest.forEach(x => setTimeout(() => { x.flash = Math.max(x.flash || 0, 0.6); }, 2600));
     const q = ev.query && !S.sealed ? `「${esc(ev.query)}」` : '';
-    toast(`<b>大脑中枢·检索</b>${q}想起了 ${mems.length} 段记忆`, reg.retrieval.color);
+    toast(`<b>大脑中枢·检索</b>${q}想起了 ${heads.length} 段${rest.length ? `，顺着关联又想起 ${rest.length} 段` : ''}`, reg.retrieval.color);
   } else if (ev.kind === 'revive') {
-    mems.forEach(m => { m.flash = 1.5; burst(m.target, '#f3d9a4', 60, 2.2); });
-    toast(`<b>复苏</b>${mems.length} 段遗忘的记忆被重新想起`, '#f3d9a4');
+    mems.forEach(m => { m.flash = 1.5; burst(tgtOf(m), '#f3d9a4', 60, 2.2); });
+    toast(`<b>召回</b>${mems.length} 段遗忘的记忆被重新想起`, '#f3d9a4');
   } else if (ev.kind === 'archive') {
     mems.forEach(m => {
-      for (let i = 0; i < 14; i++) fx.spawn({ p: m.target.clone(), v: new THREE.Vector3((Math.random() - .5) * .4, -0.3 - Math.random() * .5, (Math.random() - .5) * .4), c: new THREE.Color(0.6, 0.62, 0.75), size: 0.9, max: 2.4, drag: 0.99 });
+      for (let i = 0; i < 14; i++) fx.spawn({ p: tgtOf(m).clone(), v: new THREE.Vector3((Math.random() - .5) * .4, -0.3 - Math.random() * .5, (Math.random() - .5) * .4), c: new THREE.Color(0.6, 0.62, 0.75), size: 0.9, max: 2.4, drag: 0.99 });
     });
-    burst(ORGAN_POS.metabolism, reg.metabolism.color, 30, 1.2);
-    toast(`<b>代谢·治理</b>${mems.length} 段记忆渐渐淡去`, reg.metabolism.color);
-  } else if (ev.kind === 'merge') {
-    mems.forEach(m => { m.flash = 1; burst(m.target, m.color.getStyle(), 20, 1); });
-    toast(`<b>海马体</b>把相似的记忆合并在了一起`, reg.hippocampus.color);
+    burst(organ('metabolism'), reg.metabolism.color, 30, 1.2);
+    toast(`<b>代谢·治理</b>${mems.length} 段记忆按遗忘曲线淡去（仍可召回）`, reg.metabolism.color);
+  } else if (ev.kind === 'persona') {
+    corePulse = 0.8;
+    toast(`<b>性格养成</b>${(ev.traits || []).length ? 'TA 的性格因为经历有了一点点变化' : '性格基线被调整了'}`, '#c9a7ff');
+  } else if (ev.kind === 'genesis') {
+    burst(new THREE.Vector3(), '#f3d9a4', 140, 4); corePulse = 1.5;
+    toast('<b>钥匙诞生</b>唯一的超级管理员钥匙已经放到了你的桌面，请备份好', '#f3d9a4');
   } else if (ev.kind === 'wake') {
     corePulse = 1.3; burst(new THREE.Vector3(), '#cfe0ff', 80, 3);
     toast(`<b>醒来</b>${esc(ev.agent || 'AI')} 睁开眼睛，看了看自己的记忆`, '#cfe0ff');
-  } else if (ev.kind === 'update' || ev.kind === 'delete') {
-    toast(`<b>超级管理员</b>${ev.kind === 'update' ? '修改' : '删除'}了一段记忆`, '#f3d9a4');
+  } else if (ev.kind === 'update' || ev.kind === 'delete' || ev.kind === 'export') {
+    toast(`<b>超级管理员</b>${{ update: '修改了一段记忆', delete: '删除了一段记忆', export: '导出了记忆文件' }[ev.kind]}`, '#f3d9a4');
   }
 }
 
@@ -626,7 +777,7 @@ async function pollEvents() {
 // ------------------------------------------------------------------ 搜索（需要超级管理员）
 const qEl = $('#q'), resEl = $('#results');
 let qTimer;
-qEl.addEventListener('focus', () => { if (S.sealed) { qEl.blur(); openLock(); } });
+qEl.addEventListener('focus', () => { if (S.sealed) { qEl.blur(); openKey(); } });
 qEl.addEventListener('input', () => {
   clearTimeout(qTimer);
   qTimer = setTimeout(async () => {
@@ -638,62 +789,54 @@ qEl.addEventListener('input', () => {
         return `<button data-id="${m.id}" style="--c:${r.color}"><small><span class="r-dot"></span>${esc(r.name)} · ${fmtDate(sortKey(m))}</small>${esc(m.title ? m.title + '：' : '')}${esc(m.content.slice(0, 50))}</button>`;
       }).join('') : '<button disabled>什么也没想起来……</button>';
       resEl.classList.add('show');
-      memories.forEach((m, i) => { const mm = S.byId.get(m.id); if (mm) comet(ORGAN_POS.retrieval, mm.target, S.regionBy.retrieval.color, { dur: 1.2 + i * 0.12, lift: 2.5, onArrive: () => { mm.flash = 1; } }); });
+      memories.forEach((m, i) => { const mm = S.byId.get(m.id); if (mm) comet(organ('retrieval'), tgtOf(mm), S.regionBy.retrieval.color, { dur: 1.2 + i * 0.12, lift: 2.5, onArrive: () => { mm.flash = 1; } }); });
       corePulse = 0.8;
-      resEl.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { const m = S.byId.get(b.dataset.id); resEl.classList.remove('show'); if (m) startReel(m.region, m.id); });
-    } catch (e) { if (e.status === 401) openLock(); }
+      resEl.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { const m = S.byId.get(b.dataset.id); resEl.classList.remove('show'); if (m) startChain(m); });
+    } catch (e) { if (e.status === 423) openKey(); }
   }, 280);
 });
 document.addEventListener('pointerdown', e => { if (!$('#search').contains(e.target)) resEl.classList.remove('show'); });
 
-// ------------------------------------------------------------------ 超级管理员
-const lockModal = $('#lockmodal');
-function renderLock() {
-  const b = $('#lockbtn');
-  b.classList.toggle('on', S.admin.unlocked);
-  b.querySelector('span').textContent = !S.admin.initialized ? '设定密码' : S.admin.unlocked ? '已解封' : S.admin.awake ? '封存中' : '沉睡中';
+// ------------------------------------------------------------------ 超级管理员钥匙（私钥在登记的位置 = 解锁）
+const keyModal = $('#keymodal');
+function renderKey() {
+  $('#keybtn').classList.toggle('ok', !!S.key.unlocked);
+  $('#keybtn').title = S.key.unlocked ? '超级管理员钥匙：在' : '超级管理员钥匙：不在';
 }
-function openLock() {
-  const setup = !S.admin.initialized;
-  $('#lk-title').textContent = setup ? '设定超级管理员' : '超级管理员';
-  $('#lk-sub').textContent = setup ? '第一次使用，请设定超级管理员密码。AI 写进来的记忆会用它加密封存；查看、修改、删除都需要它。'
-    : S.admin.awake ? '记忆已被封存。输入超级管理员密码，才能查看它们。' : '记忆大脑在沉睡。输入超级管理员密码唤醒她：唤醒后 AI 才能回想，你也能查看记忆。';
-  $('#lk-pass2').style.display = setup ? '' : 'none';
-  $('#lk-warn').style.display = setup ? '' : 'none';
-  $('#lk-ok').textContent = setup ? '设 定' : S.admin.awake ? '解 封' : '唤 醒';
-  $('#lk-err').textContent = ''; $('#lk-pass').value = ''; $('#lk-pass2').value = '';
-  lockModal.classList.add('show'); setTimeout(() => $('#lk-pass').focus(), 60);
+function openKey() {
+  const k = S.key;
+  $('#km-sub').textContent = k.initialized
+    ? '这把私钥和这份记忆一一对应。每次访问记忆，都会去下面的路径看一眼钥匙还在不在：在就自动解锁，不在谁都打不开。'
+    : '还没有记忆。模型第一次写入记忆时，会在你电脑的桌面上生成唯一的超级管理员钥匙。';
+  $('#km-state').innerHTML = !k.initialized ? '<span>尚未生成</span>'
+    : `<span class="${k.unlocked ? 'ok' : 'no'}">●</span><div><b>${k.unlocked ? '钥匙在，记忆已解锁' : '找不到钥匙，记忆被锁着'}</b><small>指纹 ${esc(k.fingerprint || '')}</small></div>`;
+  $('#km-path').value = k.key_path || ''; $('#km-path').disabled = !k.initialized;
+  $('#km-export').disabled = !k.unlocked; $('#km-export').style.opacity = k.unlocked ? 1 : 0.4;
+  $('#km-err').textContent = '';
+  keyModal.classList.add('show');
 }
-$('#lk-cancel').onclick = () => lockModal.classList.remove('show');
-$('#lk-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('#lk-ok').click(); });
-$('#lk-pass2').addEventListener('keydown', e => { if (e.key === 'Enter') $('#lk-ok').click(); });
-$('#lk-ok').onclick = async () => {
-  const p = $('#lk-pass').value, setup = !S.admin.initialized;
-  if (setup) {
-    if (p.length < 8) return ($('#lk-err').textContent = '密码至少 8 位');
-    if (p !== $('#lk-pass2').value) return ($('#lk-err').textContent = '两次输入的密码不一样');
-  }
+$('#keybtn').onclick = openKey;
+$('#km-cancel').onclick = () => keyModal.classList.remove('show');
+$('#km-path').addEventListener('keydown', e => { if (e.key === 'Enter') $('#km-ok').click(); });
+$('#km-ok').onclick = async () => {
   try {
-    const r = await api(setup ? 'api/admin/setup' : 'api/admin/unlock', { method: 'POST', body: { password: p } });
-    token = r.token; store.set('fmn-token', token);
-    lockModal.classList.remove('show');
-    await loadBrain();
-    corePulse = 1.4; burst(new THREE.Vector3(), '#f3d9a4', 120, 4);
-    toast('<b>解封</b>超级管理员打开了记忆', '#f3d9a4');
-    if (reel.on) showCard(true);
-  } catch (e) { $('#lk-err').textContent = e.message || '出错了'; }
+    S.key = await api('api/key', { method: 'POST', body: { path: $('#km-path').value } });
+    await loadBrain(); openKey();
+    if (S.key.unlocked) { corePulse = 1.4; burst(new THREE.Vector3(), '#f3d9a4', 120, 4); toast('<b>解锁</b>找到了超级管理员钥匙', '#f3d9a4'); if (reel.on) showCard(true); }
+  } catch (e) { $('#km-err').textContent = e.message; }
 };
-$('#lockbtn').onclick = async () => {
-  if (!S.admin.unlocked) return openLock();
-  try { await api('api/admin/lock', { method: 'POST', body: {} }); } catch { }
-  token = null; store.set('fmn-token', null);
-  await loadBrain(); if (reel.on) showCard(true);
-  toast('<b>封存</b>记忆重新被锁上了', '#f3d9a4');
-};
+$('#km-export').onclick = () => { if (S.key.unlocked) location.href = 'api/export'; };
+// 钥匙随时可能被拿走或放回：定时看一眼
+setInterval(async () => {
+  try {
+    const k = await api('api/key');
+    if (k.unlocked !== S.key.unlocked || k.key_path !== S.key.key_path) { await loadBrain(); if (reel.on) showCard(true); if (keyModal.classList.contains('show')) openKey(); }
+  } catch { }
+}, 3000);
 
 const editModal = $('#editmodal'); let editing = null;
 async function cardAction(act, m) {
-  if (act === 'unlock') return openLock();
+  if (act === 'key') return openKey();
   if (act === 'edit') { editing = m; $('#ed-text').value = m.content; $('#ed-err').textContent = ''; editModal.classList.add('show'); return; }
   try {
     if (act === 'archive') await api(`api/admin/memories/${m.id}`, { method: 'POST', body: { status: m.status === 'archived' ? 'active' : 'archived' } });
@@ -702,7 +845,7 @@ async function cardAction(act, m) {
       await api(`api/admin/memories/${m.id}/delete`, { method: 'POST', body: {} });
     }
     await loadBrain(); if (reel.on) { if (!reel.list.length) exitReel(); else showCard(true); }
-  } catch (e) { toast(`<b>失败</b>${esc(e.message)}`, '#ff8fa6'); }
+  } catch (e) { if (e.status === 423) openKey(); else toast(`<b>失败</b>${esc(e.message)}`, '#ff8fa6'); }
 }
 $('#ed-cancel').onclick = () => editModal.classList.remove('show');
 $('#ed-ok').onclick = async () => {
@@ -805,7 +948,7 @@ function tick() {
   else {
     corePulse = Math.max(0, corePulse - dt * 0.8);
     const camCore = camera.position.length();
-    core.set(1 + 0.08 * Math.sin(time * 1.6) + corePulse * 0.6, time, (reel.on ? 0.35 : 1) * smooth(3, 16, camCore) * 0.85 + 0.15);
+    core.set(1 + 0.08 * Math.sin(time * 1.6) + corePulse * 0.6, time, (reel.on ? 0.35 : 1) * smooth(2.5, 16, camCore) * 0.85 + 0.15);
   }
   stepFlight(dt);
 
@@ -815,7 +958,7 @@ function tick() {
     const m = reel.list[reel.i];
     if (m) {
       const k = 1 - Math.exp(-dt * 1.6);
-      camera.position.lerp(camFor(m), k); controls.target.lerp(m.target, k);
+      camera.position.lerp(camFor(m), k); controls.target.lerp(tgtOf(m), k);
       if (reel.playing) { reel.t += dt; if (reel.t >= reel.dur) reelGo(1); }
       $('#prog').style.width = (clamp(reel.t / reel.dur, 0, 1) * 100).toFixed(1) + '%';
     }
@@ -841,6 +984,15 @@ function tick() {
   stars.material.uniforms.uDim.value = lerp(stars.material.uniforms.uDim.value, reel.on ? 1 : 0, 1 - Math.exp(-dt * 3));
   dust.material.uniforms.uBright.value = lerp(1, 0.55, smooth(14, 4, dist));
   for (const m of [dust.material, stars.material, sky.mat]) m.uniforms.uTime.value = time;
+  if (S.view === 'brain') {
+    brain.update(time, S.memories, m => Math.max(m === cur ? 1 : 0, m === S.hover ? 0.6 : 0, Math.min(1, m.flash || 0)));
+    brain.stars.material.uniforms.uDim.value = stars.material.uniforms.uDim.value;
+    // 脑图里的数据流：时不时有一颗光点从输入流向海马体，再流向某个脑区
+    if (!swapping && Math.random() < dt * 0.5) {
+      const keys = Object.keys(S.arcs); const k = keys[Math.floor(Math.random() * keys.length)];
+      if (k) comet(hubPos('input'), hubPos('hippocampus'), S.regionBy.input.color, { dur: 1.2, lift: 1, trail: true, onArrive: () => comet(hubPos('hippocampus'), hubPos(k), S.regionBy[k].color, { dur: 1.4, lift: 1.5 }) });
+    }
+  }
   fx.update(dt);
   if (organs) organs.material = fx.points.material;
   sky.group.rotation.y += dt * 0.004;

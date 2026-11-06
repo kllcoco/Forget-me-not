@@ -9,72 +9,127 @@ import { callTool } from '../lib/core/tools.js'
 import { createHandler } from '../lib/core/http.js'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'fmn-'))
-const PW = 'correct horse battery'
+function fresh() {
+  const desk = tmp(); process.env.FMN_KEY_DIR = desk
+  return { brain: new Brain(tmp()), desk }
+}
 
-test('没有设定密码时不能写入', async () => {
-  const b = new Brain(tmp())
-  const r = await callTool(b, 'memory_remember', { content: 'x', region: 'life', importance: 0.5 })
-  assert.equal(r.ok, false); assert.equal(r.error, 'NO_VAULT')
+test('第一次写入：在桌面生成唯一的钥匙，并让模型告诉用户', async () => {
+  const { brain, desk } = fresh()
+  assert.equal(brain.initialized, false)
+  const r = await callTool(brain, 'memory_remember', { content: '阿遥喜欢重庆火锅，不要香菜', region: 'life', importance: 0.6 })
+  assert.equal(r.ok, true)
+  assert.match(r.tell_user_now, /唯一的超级管理员钥匙/)
+  const keyFile = r.admin_key.key_path
+  assert.equal(path.dirname(keyFile), desk)
+  assert.match(fs.readFileSync(keyFile, 'utf8'), /BEGIN PRIVATE KEY/)
+  // 数据目录里没有私钥，也没有明文
+  for (const f of fs.readdirSync(brain.home)) {
+    const p = path.join(brain.home, f); if (!fs.statSync(p).isFile()) continue
+    const t = fs.readFileSync(p, 'utf8')
+    assert.ok(!t.includes('PRIVATE KEY') && !t.includes('火锅') && !t.includes('香菜'), f)
+  }
+  // 第二次写入不会再生成钥匙
+  const r2 = await callTool(brain, 'memory_remember', { content: '第二条', region: 'working', importance: 0.2 })
+  assert.equal(r2.admin_key, undefined)
 })
 
-test('写入的内容在磁盘上是加密的；沉睡时 AI 能写不能回想', async () => {
-  const home = tmp(); let b = new Brain(home); b.setup(PW)
-  await b.remember({ content: '阿遥喜欢重庆火锅，不要香菜', region: 'life', importance: 0.6 })
-  const disk = fs.readFileSync(path.join(home, 'memories.json'), 'utf8')
-  assert.ok(!disk.includes('火锅') && !disk.includes('香菜'), '明文不应该出现在磁盘上')
-  assert.ok(!fs.readFileSync(path.join(home, 'vault.json'), 'utf8').includes('PRIVATE'))
+test('钥匙在：自动解锁；钥匙不在：谁都打不开，但还能写入；填新路径后恢复', async () => {
+  const { brain } = fresh()
+  const { admin_key } = await callTool(brain, 'memory_remember', { content: '阿遥的生日是五月二十日', region: 'longterm', importance: 0.9 })
+  assert.equal((await callTool(brain, 'memory_recall', { query: '生日' })).count >= 1, true)
 
-  b = new Brain(home) // 重启：私钥不在内存里
-  assert.equal(b.awake, false)
-  const w = await callTool(b, 'memory_remember', { content: '新的一条', region: 'working', importance: 0.2 })
-  assert.equal(w.ok, true)
-  const r = await callTool(b, 'memory_recall', { query: '火锅' })
-  assert.equal(r.error, 'ASLEEP')
-  assert.throws(() => b.unlock('wrong password'), /密码不对/)
-  b.unlock(PW)
-  const r2 = await callTool(b, 'memory_recall', { query: '火锅' })
-  assert.equal(r2.count >= 1, true); assert.match(r2.memories[0].content, /火锅/)
+  const moved = path.join(tmp(), 'usb.key')
+  fs.renameSync(admin_key.key_path, moved)
+  assert.equal(brain.unlocked, false)
+  assert.equal((await callTool(brain, 'memory_recall', { query: '生日' })).error, 'LOCKED')
+  assert.equal((await callTool(brain, 'memory_remember', { content: '锁着也能写', region: 'life', importance: 0.3 })).ok, true)
+  assert.equal(brain.snapshot().sealed, true)
+  assert.ok(!JSON.stringify(brain.snapshot()).includes('生日'))
+
+  // 另一把钥匙不行
+  const other = fresh(); await other.brain.remember({ content: 'x', region: 'life', importance: 0.1 })
+  assert.throws(() => brain.setKeyPath(other.brain.keyStatus().key_path), /不是这份记忆的钥匙/)
+  brain.setKeyPath(moved)
+  assert.equal(brain.unlocked, true)
+  const hits = brain.recall('生日 五月')
+  assert.match(hits[0].memory.content, /五月二十日/)
 })
 
 test('AI 没有修改和删除的工具', async () => {
-  const b = new Brain(tmp()); b.setup(PW)
-  await assert.rejects(() => callTool(b, 'memory_update', { id: 'x' }), /未知工具/)
-  await assert.rejects(() => callTool(b, 'memory_forget', { id: 'x' }), /未知工具/)
+  const { brain } = fresh()
+  await assert.rejects(() => callTool(brain, 'memory_update', { id: 'x' }), /未知工具/)
+  await assert.rejects(() => callTool(brain, 'memory_forget', { id: 'x' }), /未知工具/)
 })
 
-test('不重要的旧记忆会淡忘，强线索能让它复苏', async () => {
-  const b = new Brain(tmp()); b.setup(PW)
-  const old = Date.now() / 1000 - 200 * 86400
-  const m = await b.remember({ content: '阿遥在旧书店买了一本绿色封面的诗集', region: 'life', importance: 0.2, created_at: old, last_access: old, _log: false })
-  const keep = await b.remember({ content: '阿遥的生日是五月二十日', region: 'longterm', importance: 0.95, created_at: old, last_access: old, _log: false })
-  const faded = b.maintain()
-  assert.ok(faded.includes(m.id)); assert.ok(!faded.includes(keep.id))
-  const hits = b.recall('旧书店 诗集')
-  assert.equal(hits[0].id, m.id); assert.equal(hits[0].revived, true)
-  assert.equal(b.memories.find(x => x.id === m.id).status, 'active')
+test('艾宾浩斯遗忘：6~90 天；遗忘后可按需召回', async () => {
+  const { brain } = fresh()
+  const day = 86400, t0 = Date.now() / 1000
+  assert.equal(brain.forgetDays({ importance: 0 }), 6)
+  assert.equal(brain.forgetDays({ importance: 1 }), 90)
+  const low = await brain.remember({ content: '阿遥在旧书店买了一本绿色封面的诗集', region: 'life', importance: 0.1, created_at: t0 - 20 * day, _log: false })
+  const high = await brain.remember({ content: '阿遥的妈妈做了手术', region: 'longterm', importance: 0.9, created_at: t0 - 20 * day, _log: false })
+  const faded = brain.maintain()
+  assert.ok(faded.includes(low.id), '20 天后不重要的记忆应当被遗忘')
+  assert.ok(!faded.includes(high.id), '重要的记忆 20 天后还记得')
+  const c = brain.recall('旧书店 诗集')
+  assert.equal(c[0].memory.id, low.id); assert.equal(c[0].memory.revived, true)
+  assert.equal(brain.memories.find(m => m.id === low.id).status, 'active')
 })
 
-test('HTTP：没有超级管理员令牌看不到内容，也不能修改', async () => {
-  const b = new Brain(tmp()); b.setup(PW)
-  const { id } = await b.remember({ content: '秘密的记忆', region: 'limbic', importance: 0.8, image_prompt: '海边日落' })
-  const handle = createHandler({ brain: b })
-  const srv = http.createServer((q, s) => handle(q, s)); await new Promise(r => srv.listen(0, r))
+test('联想式召回：一次想起一整串关联记忆', async () => {
+  const { brain } = fresh()
+  await brain.remember({ content: '小棠和阿哲订婚了，婚礼定在十月', region: 'longterm', importance: 0.7, tags: ['小棠', '婚礼'] })
+  await brain.remember({ content: '小棠让阿遥帮忙选婚礼入场曲', region: 'auditory', importance: 0.5, tags: ['小棠', '婚礼', '音乐'] })
+  await brain.remember({ content: '婚礼上阿遥作为伴娘念了一封信', region: 'limbic', importance: 0.9, tags: ['小棠', '婚礼'] })
+  await brain.remember({ content: '阿遥周末去剪了短发', region: 'life', importance: 0.2, tags: ['理发'] })
+  const r = await callTool(brain, 'memory_recall', { query: '订婚', limit: 1 })
+  assert.equal(r.clusters.length, 1)
+  assert.ok(r.clusters[0].associated.length >= 2, '应该顺着关联想起婚礼相关的记忆')
+  assert.ok(!JSON.stringify(r).includes('短发'))
+})
+
+test('可塑性性格：有上限、会累积', async () => {
+  const { brain } = fresh()
+  await brain.remember({ content: 'x', region: 'life', importance: 0.1 })
+  const a = brain.shapePersona([{ trait: 'warmth', delta: 0.5, reason: '测试' }])
+  assert.equal(a[0].delta, 0.05)
+  brain.shapePersona([{ trait: '温柔', delta: 0.05, reason: '再一次' }])
+  const b = brain.shapePersona([{ trait: 'warmth', delta: 0.05, reason: '超过每日上限' }])
+  assert.equal(b.length, 0)
+  assert.match(brain.personaText(), /温柔/)
+})
+
+test('导出需要钥匙，而且只有同一把钥匙能导入', async () => {
+  const { brain } = fresh()
+  const { admin_key } = await brain.remember({ content: '要带走的记忆', region: 'longterm', importance: 0.8 })
+  const bundle = brain.exportBundle()
+  assert.ok(!JSON.stringify(bundle).includes('要带走'))
+  const other = fresh(); await other.brain.remember({ content: 'y', region: 'life', importance: 0.1 })
+  const target = new Brain(tmp())
+  assert.throws(() => target.importBundle(bundle, other.brain.keyStatus().key_path), /那把钥匙/)
+  assert.equal(target.importBundle(bundle, admin_key.key_path).added, 1)
+  assert.match(target.search('带走')[0].content, /要带走的记忆/)
+  fs.rmSync(admin_key.key_path)
+  assert.throws(() => brain.exportBundle(), /锁着/)
+})
+
+test('HTTP：钥匙不在时什么都看不到、改不了', async () => {
+  const { brain } = fresh()
+  const { admin_key } = await brain.remember({ content: '秘密的记忆', region: 'limbic', importance: 0.8 })
+  const id = brain.memories[0].id
+  const srv = http.createServer((q, s) => createHandler({ brain })(q, s)); await new Promise(r => srv.listen(0, r))
   const base = `http://127.0.0.1:${srv.address().port}`
-  const j = async (p, o = {}) => { const r = await fetch(base + p, o); return { status: r.status, body: await r.json() } }
+  const j = async (p, o = {}) => { const r = await fetch(base + p, o); return { status: r.status, body: await r.json().catch(() => null) } }
   try {
+    assert.equal((await j('/api/brain')).body.sealed, false)
+    const hidden = admin_key.key_path + '.away'; fs.renameSync(admin_key.key_path, hidden)
     const snap = await j('/api/brain')
-    assert.equal(snap.body.sealed, true)
-    assert.ok(!JSON.stringify(snap.body).includes('秘密'))
-    assert.equal((await j(`/api/admin/memories/${id}`, { method: 'POST', body: '{"content":"改掉"}' })).status, 401)
-    assert.equal((await j('/api/search?q=秘密')).status, 401)
-    assert.equal((await j('/api/admin/unlock', { method: 'POST', body: '{"password":"nope nope"}' })).status, 401)
-    const { body: { token } } = await j('/api/admin/unlock', { method: 'POST', body: JSON.stringify({ password: PW }) })
-    const auth = { headers: { authorization: 'Bearer ' + token } }
-    const open = await j('/api/brain', auth)
-    assert.equal(open.body.sealed, false); assert.equal(open.body.memories[0].content, '秘密的记忆')
-    const upd = await j(`/api/admin/memories/${id}`, { method: 'POST', body: '{"content":"改过的记忆"}', ...auth })
+    assert.equal(snap.body.sealed, true); assert.ok(!JSON.stringify(snap.body).includes('秘密'))
+    assert.equal((await j(`/api/admin/memories/${id}`, { method: 'POST', body: '{"content":"改掉"}' })).status, 423)
+    assert.equal((await j('/api/export')).status, 423)
+    assert.equal((await j('/api/key', { method: 'POST', body: JSON.stringify({ path: hidden }) })).status, 200)
+    const upd = await j(`/api/admin/memories/${id}`, { method: 'POST', body: '{"content":"改过的记忆"}' })
     assert.equal(upd.body.content, '改过的记忆')
-    await j('/api/admin/lock', { method: 'POST', body: '{}', ...auth })
-    assert.equal((await j('/api/brain', auth)).body.sealed, true)
   } finally { srv.close() }
 })

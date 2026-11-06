@@ -232,6 +232,44 @@ body.entered #enter { opacity: 0; pointer-events: none; transform: translate(-50
 #tooltip.show { opacity: 1; }
 #tooltip b { color: var(--c); font-weight: 400; }
 
+
+/* ---------- 超级管理员小钥匙 ---------- */
+#keybtn { right: 12px; bottom: 8px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; z-index: 8;
+  color: var(--muted); opacity: .55; transition: opacity .3s, color .3s; }
+#keybtn:hover { opacity: 1; color: var(--ink); }
+#keybtn svg { width: 13px; height: 13px; }
+#keybtn i { position: absolute; right: 2px; top: 2px; width: 5px; height: 5px; border-radius: 50%; background: #ff6b7f; box-shadow: 0 0 6px #ff6b7f; }
+#keybtn.ok i { background: #7ee08a; box-shadow: 0 0 6px #7ee08a; }
+.keystate { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 12px; border-radius: 12px; border: 1px solid var(--line); font-size: 13px; line-height: 1.7; color: var(--ink-2); }
+.keystate b { font-weight: 400; }
+.keystate .ok { color: #7ee08a; } .keystate .no { color: #ff8fa6; }
+.keystate small { display: block; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+.modal input#km-path { font-size: 12.5px; letter-spacing: .02em; font-family: ui-monospace, Menlo, monospace; }
+
+/* ---------- 性格养成 ---------- */
+#persona { right: 30px; top: 92px; width: 300px; padding: 16px 18px 14px; border-radius: 18px; background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); opacity: 0; transform: translateY(-8px); pointer-events: none; }
+body.brain #persona { opacity: 1; transform: none; pointer-events: auto; }
+body.brain.reel #persona { opacity: 0; pointer-events: none; }
+#persona h5 { margin: 0 0 2px; font-family: var(--display); font-weight: 400; font-size: 17px; letter-spacing: .2em; }
+#persona .sub { font-size: 11px; letter-spacing: .2em; color: var(--muted); }
+#persona svg { display: block; width: 100%; height: auto; margin: 6px 0 4px; overflow: visible; }
+#persona svg text { font-size: 10.5px; fill: var(--ink-2); letter-spacing: .08em; font-family: var(--serif); }
+#persona ul { list-style: none; margin: 4px 0 0; padding: 0; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+#persona li b { font-weight: 400; color: var(--ink-2); margin-right: 4px; }
+#persona li .up { color: #7ee08a; } #persona li .down { color: #ff8fa6; }
+#persona .locked { font-size: 12.5px; color: var(--muted); line-height: 1.8; margin-top: 8px; }
+
+/* 关联记忆 */
+#card .assoc { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); }
+#card .assoc button { padding: 3px 10px; border-radius: 999px; border: 1px dashed var(--line); color: var(--ink-2); font-size: 11.5px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#card .assoc button:hover { border-style: solid; color: var(--ink); }
+#card .left { color: var(--muted); }
+
+body.brain #brand h1 { font-family: var(--serif); font-weight: 300; letter-spacing: .24em; }
+body.brain #enter, body.reel #enter { opacity: 0; pointer-events: none; }
+#toolbar .chip.on#brainbtn { color: #0a0e1a; }
+
 /* ---------- small screens ---------- */
 @media (max-width: 760px) {
   #brand { left: 16px; top: 18px; }
@@ -245,6 +283,7 @@ body.entered #enter { opacity: 0; pointer-events: none; transform: translate(-50
   body.reel #search { opacity: 0; pointer-events: none; }
   #strip .fr { width: 38px; height: 38px; } #strip .fr.on { width: 50px; height: 50px; }
   #feed { display: none; }
+  #persona { left: 16px; right: 16px; width: auto; top: 160px; }
   #toolbar { left: 16px; right: 16px; bottom: 18px; flex-wrap: wrap; }
   #zoom { right: 12px; }
   #card { width: min(340px, calc(100vw - 32px)); }
