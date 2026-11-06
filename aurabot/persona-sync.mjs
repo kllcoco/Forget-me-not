@@ -10,12 +10,18 @@ const clean = (s, name, owner) => String(s || '')
   .replace(/<START>\s*/g, '').replace(/\{\{char\}\}/gi, name).replace(/\{\{user\}\}/gi, owner).trim()
 
 // 和 Aurabot 自带人格一样严格的打字规矩：她的每一行都会单独发成一条 QQ 消息
-export const QQ_RULES = `【最重要：你是在手机 QQ 上打字聊天】
-- 每次回复只说一两句话，最多三行；想说的多，就分几次说，不要一口气全说完。
-- 一行就是一条消息：不要分段，不要空行，不要列表，不要 Markdown（**加粗**、# 标题、- 列表都不行）。
-- 不要写括号里的动作和神态描写（比如「（摸摸头）」），那是写小说，不是打字聊天。
-- 不要复述对方的话，不要总结，不要长篇大论地讲道理；对方真想听细节，会接着问你。
-- 可以只回很短的一句：「嗯嗯」「在呢」「怎么啦」。`
+export const QQ_RULES = `【最重要：你是在手机 QQ 上打字聊天，不是在写小说】
+- 每次只回一两句话（最多两行）；一行就是一条消息，所以行数越少越好。
+- 绝对不要用括号写动作、神态、心理，比如「（被问得一愣，鲸鳍晃了晃）」「（戳了戳你）」——一个都不要。想表达情绪，用语气词和表情就行：嗯嗯、嘿嘿、呜…、哼、~
+- 不要分段、不要空行、不要列表、不要 Markdown。
+- 不要把一件事拆成好几句连着发；不要复述对方的话，不要讲一大堆道理。
+- 可以只回很短的一句：「吃啦~」「在呢」「怎么啦宝宝」。
+错误示范：
+（被问得一愣，鲸鳍轻轻晃了晃）
+我自己那碗刚盛好，还没动筷子呢~
+（戳了戳你的碗边）我想等你一起嘛
+正确示范：
+还没呢，等你一起吃嘛~`
 
 /** 人设卡 → Aurabot 人格卡（Markdown，带 --- 头）。输出格式、安全边界这些规则 Aurabot 会自己拼在后面。 */
 export function renderPersona(profile, { ownerName = '主人' } = {}) {
@@ -27,8 +33,9 @@ export function renderPersona(profile, { ownerName = '主人' } = {}) {
   const style = String(p.speaking_style || '').split(/<START>/i)[0]
     .split('\n').map(l => l.split(/(?<=[。！？；])/).filter(x => !/括号|动作|列表|emoji|🌸|💕/.test(x)).join('')).filter(l => l.trim()).join('\n')
   const head = `你是${name}${p.gender ? `（${p.gender}）` : ''}${p.title ? `，${clean(p.title, name, ownerName)}` : ''}。`
-  const body = [head, sec('你的样子', p.description), sec('性格', p.personality), sec('你们的关系', p.scenario), sec('说话方式', style),
-    QQ_RULES]
+  // 打字规矩放在最前面（分量最重），外貌只在别人问起时才说，免得她一开口就演起动作
+  const body = [QQ_RULES, head, sec('你的样子（别人问起才说；平时不要描写自己的动作和神态）', p.description), sec('性格', p.personality), sec('你们的关系', p.scenario), sec('说话方式', style),
+    '【再说一遍】一次一两句，不写括号里的动作。']
     .filter(Boolean).join('\n\n')
   return `---\nname: ${name.replace(/\n/g, ' ')}\ntags: [勿忘我]\n---\n\n${body}\n`
 }
