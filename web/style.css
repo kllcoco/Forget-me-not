@@ -239,12 +239,15 @@ body.entered #enter { opacity: 0; pointer-events: none; transform: translate(-50
 
 
 /* ---------- 超级管理员小钥匙 ---------- */
-#keybtn { right: 12px; bottom: 8px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; z-index: 8;
-  color: var(--muted); opacity: .55; transition: opacity .3s, color .3s; }
-#keybtn:hover { opacity: 1; color: var(--ink); }
+#keybtn { position: relative; height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px 0 10px; border-radius: 999px; z-index: 8;
+  background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: var(--ink-2); font-size: 11.5px; letter-spacing: .16em; transition: color .3s, border-color .3s; }
+#keybtn b { font-weight: 400; }
+#keybtn:hover { color: var(--ink); border-color: rgba(200,214,255,.4); }
 #keybtn svg { width: 13px; height: 13px; }
-#keybtn i { position: absolute; right: 2px; top: 2px; width: 5px; height: 5px; border-radius: 50%; background: #ff6b7f; box-shadow: 0 0 6px #ff6b7f; }
+#keybtn i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
 #keybtn.ok i { background: #7ee08a; box-shadow: 0 0 6px #7ee08a; }
+#keybtn.missing { color: #ffb3c0; border-color: rgba(255,107,127,.45); }
+#keybtn.missing i { background: #ff6b7f; box-shadow: 0 0 6px #ff6b7f; }
 .keystate { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 12px; border-radius: 12px; border: 1px solid var(--line); font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .keystate b { font-weight: 400; }
 .keystate .ok { color: #7ee08a; } .keystate .no { color: #ff8fa6; }
@@ -252,7 +255,7 @@ body.entered #enter { opacity: 0; pointer-events: none; transform: translate(-50
 .modal input#km-path { font-size: 12.5px; letter-spacing: .02em; font-family: ui-monospace, Menlo, monospace; }
 
 /* ---------- 背景音乐 ---------- */
-#musicbtn { right: 44px; bottom: 8px; height: 26px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px 0 10px; border-radius: 999px; z-index: 8;
+#musicbtn { position: relative; height: 26px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px 0 10px; border-radius: 999px; z-index: 8;
   background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: var(--ink-2); font-size: 11.5px; letter-spacing: .16em; transition: color .3s, border-color .3s, box-shadow .3s; }
 #musicbtn b { font-weight: 400; }
 #musicbtn i { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
@@ -287,7 +290,7 @@ body.entered #enter { opacity: 0; pointer-events: none; transform: translate(-50
 #musicpanel .dir button { font-size: 11.5px; color: var(--ink-2); padding: 3px 8px; border-radius: 8px; margin-right: 6px; border: 1px solid var(--line); }
 #musicpanel .dir button:hover { color: var(--ink); }
 @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
-#nowplaying { right: 140px; bottom: 12px; font-family: var(--latin); font-style: italic; font-size: 12.5px; letter-spacing: .14em; color: #d9c8ff;
+#nowplaying { right: 200px; bottom: 12px; font-family: var(--latin); font-style: italic; font-size: 12.5px; letter-spacing: .14em; color: #d9c8ff;
   text-shadow: 0 0 12px rgba(201,167,255,.6); opacity: 0; transform: translateX(8px); transition: opacity 1.2s var(--ease), transform 1.2s var(--ease); pointer-events: none; white-space: nowrap; }
 #nowplaying.show { opacity: .9; transform: none; }
 
@@ -508,3 +511,37 @@ body.brain #zoom { right: 346px; }
 #dropveil > div { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 34px; border-radius: 20px; border: 1.5px dashed rgba(207,224,255,.45); background: var(--glass); backdrop-filter: blur(12px); }
 #dropveil b { font-weight: 400; font-size: 20px; letter-spacing: .4em; color: #eef3ff; }
 #dropveil span { font-size: 12.5px; color: var(--ink-2); letter-spacing: .08em; text-align: center; }
+
+/* ---------- 弹窗太高时可以滚动，按钮永远点得到 ---------- */
+.modal .panel { max-height: calc(100vh - 40px); overflow-y: auto; }
+/* ---------- 钥匙不在：顶部说明条 ---------- */
+#lockbar { left: 50%; top: 14px; transform: translate(-50%, -10px); width: min(560px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-radius: 14px; background: rgba(60, 14, 24, .72); border: 1px solid rgba(255,107,127,.45); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  font-size: 12.5px; line-height: 1.7; color: #ffe3e8; opacity: 0; pointer-events: none; transition: opacity .4s, transform .4s var(--ease); z-index: 12; }
+#lockbar.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+#lockbar b { font-weight: 500; } #lockbar code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; word-break: break-all; }
+#lockbar .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+#lockbar button { padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,190,200,.4); color: #ffe3e8; font-size: 12px; }
+#lockbar button:hover { background: rgba(255,255,255,.08); }
+body:has(#lockbar.show) #search { top: 96px; }
+/* ---------- 空大脑的提示 ---------- */
+#enter.empty { letter-spacing: .14em; text-indent: 0; white-space: nowrap; }
+#enter.empty u { text-decoration: none; color: #cfe0ff; }
+/* ---------- 图例可以滚动时，底部渐隐 + 细滚动条 ---------- */
+#legend.scroll { -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent); mask-image: linear-gradient(to bottom, #000 82%, transparent); scrollbar-width: thin; }
+#legend.scroll.at-end { -webkit-mask-image: none; mask-image: none; }
+#legend.scroll::-webkit-scrollbar { display: block; width: 3px; } #legend.scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+/* ---------- 接入：每段都有「复制」 ---------- */
+.conn-row { position: relative; margin-bottom: 14px; }
+.conn-row .sub { margin: 0 0 6px; color: var(--ink); }
+.conn-row .hint { margin: 0 0 6px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.conn-row .hint code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--ink-2); }
+.conn-row pre { max-height: 160px; overflow: auto; }
+.conn-row .copy { position: absolute; right: 8px; bottom: 8px; padding: 3px 10px; font-size: 11.5px; }
+/* 音乐面板打开时把人设卡让开 */
+body:has(#musicpanel.show) #persona, body:has(#musicpanel.show) #planetpanel { opacity: 0; pointer-events: none; }
+#intro .t { cursor: pointer; }
+#intro .skip { font-size: 13px; opacity: .8; padding: 8px 14px; }
+
+/* 右下角：音乐和钥匙排成一排，宽度变了也不会叠在一起 */
+#corner { right: 16px; bottom: 8px; display: flex; gap: 8px; align-items: center; z-index: 8; }

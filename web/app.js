@@ -194,7 +194,7 @@ async function loadBrain(first = false) {
   S.adj = new Map(); for (const [a, b, w] of S.links) { (S.adj.get(a) || S.adj.set(a, []).get(a)).push([b, w]); (S.adj.get(b) || S.adj.set(b, []).get(b)).push([a, w]); }
   layoutArcs(); layoutMemories(); writeStarBuffers();
   brain.layout(S.regionBy, S.memories, S.links, fx.points.material);
-  renderLegend(); renderStats(); buildLabels(); renderKey(); renderPersona(); loadCharacters();
+  renderLegend(); renderStats(); buildLabels(); renderKey(); renderPersona(); loadCharacters(); renderHint();
   if (reel.on) refreshReelList();
 }
 
@@ -243,6 +243,17 @@ function project(p, out = {}) {
   return out;
 }
 
+// 3D 标签飘到左边图例、底部按钮、右边卡片下面时自动变淡，不和界面文字叠在一起
+const UI_COVER = ['#legend', '#toolbar', '#persona', '#planetpanel', '#musicpanel', '#brand', '#zoom', '#search'];
+let coverRects = [], coverAt = 0;
+function underUI(x, y) {
+  const now = performance.now();
+  if (now - coverAt > 400) {
+    coverAt = now;
+    coverRects = UI_COVER.map(s => document.querySelector(s)).filter(e => e && +getComputedStyle(e).opacity > 0.1).map(e => e.getBoundingClientRect()).filter(r => r.width > 0);
+  }
+  return coverRects.some(r => x > r.left - 24 && x < r.right + 24 && y > r.top - 16 && y < r.bottom + 16);
+}
 function updateLabels(dist) {
   const base = smooth(80, 34, dist) * 0.9 + 0.1;
   const tmp = {};
@@ -255,6 +266,7 @@ function updateLabels(dist) {
       : L.region.kind === 'process' ? smooth(30, 12, dist) * 0.85 : base * smooth(1.5, 5, d);
     if (reel.on) o *= L.region.key === reel.region ? 1 : 0.12;
     if (!tmp.vis) o = 0;
+    if (o > 0.01 && underUI(tmp.x, tmp.y)) o *= 0.06;
     const sc = clamp((L.view === 'brain' ? 110 : 26) / d, 0.55, 1.5);
     L.el.style.opacity = o.toFixed(3);
     // 脑图里标签整个放在行星上方（底边对齐），并且让鼠标穿过去，这样不会挡住行星
@@ -268,9 +280,11 @@ function updateLabels(dist) {
 // ------------------------------------------------------------------ 图例 / 统计
 function placeLegend() {
   const b = $('#brand').getBoundingClientRect();
-  $('#legend').style.top = Math.round(b.bottom + 14) + 'px';
+  const l = $('#legend'); l.style.top = Math.round(b.bottom + 14) + 'px';
+  requestAnimationFrame(() => l.classList.toggle('scroll', l.scrollHeight > l.clientHeight + 4));
 }
 addEventListener('resize', placeLegend);
+$('#legend').addEventListener('scroll', e => e.target.classList.toggle('at-end', e.target.scrollTop + e.target.clientHeight >= e.target.scrollHeight - 4));
 function renderLegend() {
   const el = $('#legend'); requestAnimationFrame(placeLegend);
   const mem = S.regions.filter(r => r.kind === 'memory'), proc = S.regions.filter(r => r.kind === 'process');
@@ -295,6 +309,7 @@ function ago(ts) {
 }
 function renderStats() {
   const s = S.stats;
+  $('#stats').title = '已遗忘 ≠ 删除：遗忘的记忆还在，聊到相关的事会被重新想起，也可以手动召回';
   $('#stats').innerHTML = `还记得 <b>${s.active}</b><i>·</i>已遗忘 <b>${s.archived}</b><i>·</i>关联 <b>${S.links.length}</b><i>·</i>最近回想 <b>${ago(s.last_recall)}</b>`;
 }
 
@@ -312,7 +327,7 @@ function flyTo(pos, target, dur = 2.4, { warp = true, cinema = false, straight =
 }
 function stepFlight(dt) {
   if (!flight) return;
-  const f = flight; f.k = Math.min(1, f.k + Math.min(dt, 1 / 30) / f.dur); const e = f.easing(f.k), u = 1 - e;   // 掉帧时不跳
+  const f = flight; f.k = Math.min(1, f.k + Math.min(dt, 0.1) / f.dur); const e = f.easing(f.k), u = 1 - e;   // 掉帧时不跳
   camera.position.set(0, 0, 0)
     .addScaledVector(f.p0, u * u * u).addScaledVector(f.c1, 3 * u * u * e).addScaledVector(f.c2, 3 * u * e * e).addScaledVector(f.p1, e * e * e);
   controls.target.lerpVectors(f.t0, f.t1, f.easing(Math.min(1, f.k * 1.15)));
@@ -424,7 +439,7 @@ function renderStrip() {
   rail.innerHTML = reel.list.map((m, i) => {
     const near = Math.abs(i - reel.i) < 14;
     const src = near ? thumb(m) : null;
-    return `<div class="fr ${src ? '' : 'text'} ${m.status === 'archived' ? 'arch' : ''} ${i === reel.i ? 'on' : ''}" data-i="${i}" style="--c:${m.color.getStyle()};${src ? `background-image:url('${src}')` : ''}"></div>`;
+    return `<div class="fr ${src ? '' : 'text'} ${m.status === 'archived' ? 'arch' : ''} ${i === reel.i ? 'on' : ''}" data-i="${i}" title="${esc(fmtDate(sortKey(m)) + '  ' + (S.sealed || m.content == null ? '锁着的记忆' : (m.title || m.content.slice(0, 20))))}" style="--c:${m.color.getStyle()};${src ? `background-image:url('${src}')` : ''}"></div>`;
   }).join('');
   rail.querySelectorAll('.fr').forEach(f => f.onclick = () => { reel.i = +f.dataset.i; reel.t = 0; showCard(true); renderStrip(); setReelTitle(); });
   requestAnimationFrame(() => {
@@ -558,7 +573,6 @@ function onEscape() {
   if (reel.on) exitReel(); else if (S.follow) unfollow(); else if (S.view === 'brain') exitBrain();
 }
 $('#fsbtn').onclick = goFullscreen;
-if (!EMBED) addEventListener('pointerdown', function once() { removeEventListener('pointerdown', once); goFullscreen(); });
 addEventListener('message', e => { if (e.origin === location.origin && e.data?.type === 'fmn:fullscreen-state') document.body.classList.toggle('full', !!e.data.full); });
 
 // ------------------------------------------------------------------ 多级缩放：星环 ⇄ 脑图
@@ -635,7 +649,14 @@ function exitBrain() {
 
 // ------------------------------------------------------------------ 人设卡（太阳 · 心核）+ 性格养成
 // 名字：人设卡里的名字 → 新建角色时起的名字 → TA
-const personaName = () => { const n = S.persona?.profile?.name; return (n && n !== 'TA' ? n : S.charName || 'TA').trim() || 'TA'; };
+// 钥匙不在时人设卡读不到：用上次记下的名字，免得界面突然变回「TA」让人以为数据没了
+const NAME_KEY = 'fmn-name:' + location.pathname;
+const cachedName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } };
+const personaName = () => {
+  const n = S.persona?.profile?.name;
+  if (n && n !== 'TA') { try { localStorage.setItem(NAME_KEY, n); } catch { } return n.trim(); }
+  return (cachedName() || (S.charName && S.charName !== '默认' ? S.charName : '') || 'TA').trim() || 'TA';
+};
 /** 代词随人设卡里的性别变：女→她，男→他，没写→TA */
 const pronoun = () => { const g = String(S.persona?.profile?.gender || ''); return /女|female|woman|girl|^f$/i.test(g) ? '她' : /男|male|man|boy|^m$/i.test(g) ? '他' : 'TA'; };
 function renderTitle() {
@@ -1037,8 +1058,16 @@ $('#brainbtn').onclick = () => { if (S.view === 'brain') exitBrain(); else { exi
 
 const hintEl = $('#enter');
 hintEl.textContent = matchMedia('(pointer: coarse)').matches ? '双指放大 · 靠近星光开始放映' : '滚轮拉近 · 靠近星光开始放映';
-function hideHint() { document.body.classList.add('entered'); }
-hintEl.onclick = () => { hideHint(); const keys = Object.keys(S.arcs); if (keys.length) openRegion(keys[0]); };
+function hideHint() { if (S.memories.length) document.body.classList.add('entered'); }
+// 还没有记忆时，提示去哪里让记忆长出来
+function renderHint() {
+  const empty = !S.memories.length;
+  hintEl.classList.toggle('empty', empty);
+  hintEl.innerHTML = empty ? `还没有记忆 · 去和${esc(personaName())}聊天，${pronoun()}记住的事会出现在这里　<u>怎么接入 →</u>`
+    : (matchMedia('(pointer: coarse)').matches ? '双指放大 · 靠近星光开始放映' : '滚轮拉近 · 靠近星光开始放映');
+  if (empty) document.body.classList.remove('entered');
+}
+hintEl.onclick = () => { if (!S.memories.length) { $('#connect').click(); return; } hideHint(); const keys = Object.keys(S.arcs); if (keys.length) openRegion(keys[0]); };
 
 // ------------------------------------------------------------------ 事件：写入 / 回想 / 遗忘 的动画
 const feed = $('#feed');
@@ -1143,7 +1172,6 @@ async function pollEvents() {
 // ------------------------------------------------------------------ 搜索（需要超级管理员）
 const qEl = $('#q'), resEl = $('#results');
 let qTimer;
-qEl.addEventListener('focus', () => { if (S.sealed) { qEl.blur(); openKey(); } });
 qEl.addEventListener('input', () => {
   clearTimeout(qTimer);
   qTimer = setTimeout(async () => {
@@ -1158,7 +1186,10 @@ qEl.addEventListener('input', () => {
       memories.forEach((m, i) => { const mm = S.byId.get(m.id); if (mm) comet(organ('retrieval'), tgtOf(mm), S.regionBy.retrieval.color, { dur: 1.2 + i * 0.12, lift: 2.5, onArrive: () => { mm.flash = 1; } }); });
       corePulse = 0.8;
       resEl.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { const m = S.byId.get(b.dataset.id); resEl.classList.remove('show'); if (m) startChain(m); });
-    } catch (e) { if (e.status === 423) openKey(); }
+    } catch (e) {
+      resEl.innerHTML = e.status === 423 ? '<button data-key>🔒 钥匙不在，搜不到内容。点这里找回钥匙</button>' : `<button disabled>${esc(e.message)}</button>`;
+      resEl.classList.add('show'); const k = resEl.querySelector('[data-key]'); if (k) k.onclick = () => { resEl.classList.remove('show'); openKey(); };
+    }
   }, 280);
 });
 document.addEventListener('pointerdown', e => { if (!$('#search').contains(e.target)) resEl.classList.remove('show'); });
@@ -1166,14 +1197,26 @@ document.addEventListener('pointerdown', e => { if (!$('#search').contains(e.tar
 // ------------------------------------------------------------------ 超级管理员钥匙（私钥在登记的位置 = 解锁）
 const keyModal = $('#keymodal');
 function renderKey() {
-  $('#keybtn').classList.toggle('ok', !!S.key.unlocked);
-  $('#keybtn').title = S.key.unlocked ? '超级管理员钥匙：在' : '超级管理员钥匙：不在';
+  const k = S.key, kb = $('#keybtn');
+  kb.classList.toggle('ok', !!k.unlocked); kb.classList.toggle('missing', !!(k.initialized && !k.unlocked));
+  kb.querySelector('b').textContent = !k.initialized ? '钥匙' : k.unlocked ? '钥匙' : '钥匙不在';
+  kb.title = !k.initialized ? '还没有钥匙：点这里生成' : k.unlocked ? '超级管理员钥匙：在' : '超级管理员钥匙：不在';
+  // 钥匙不在：顶上一条说清楚发生了什么、怎么办
+  const bar = $('#lockbar');
+  if (k.initialized && !k.unlocked) {
+    bar.innerHTML = `<span>🔒 <b>记忆被锁住了</b>：找不到钥匙文件${k.key_path ? `（原来在 <code>${esc(k.key_path)}</code>）` : ''}，可能被删除或挪走了。记忆都还在，钥匙回来就能打开。</span>
+      <span class="acts"><button data-a="retry">我放回去了，再试一次</button><button data-a="path">它在别的位置</button><button data-a="shares">用碎片恢复</button></span>`;
+    bar.querySelector('[data-a=retry]').onclick = async () => { await loadBrain(); if (!S.key.unlocked) toast('<b>钥匙</b>还是没找到，确认一下文件放回原来的位置了吗？', '#ff8fa6'); else toast('<b>钥匙</b>找到啦，记忆已解锁', '#7ee08a'); };
+    bar.querySelector('[data-a=path]').onclick = () => { openKey(); $('#km-path').focus(); $('#km-path').select(); };
+    bar.querySelector('[data-a=shares]').onclick = () => { openKey(); setTimeout(() => $('#km-restore').click(), 150); };
+    bar.classList.add('show');
+  } else bar.classList.remove('show');
 }
 function openKey() {
   const k = S.key;
   $('#km-sub').textContent = k.initialized
     ? '这把私钥和这份记忆一一对应。每次访问记忆，都会去下面的路径看一眼钥匙还在不在：在就自动解锁，不在谁都打不开。'
-    : '还没有记忆。模型第一次写入记忆时，会在你电脑的桌面上生成唯一的超级管理员钥匙。如果你有以前导出的记忆文件，可以填上那把钥匙的路径后导入。';
+    : '还没有钥匙。点下面的「生成钥匙」一步搞定；如果你有以前导出的记忆文件，可以填上那把钥匙的路径后导入。';
   $('#km-state').innerHTML = !k.initialized ? '<span class="no">●</span><div><b>还没有钥匙</b><small>点这里一步一步生成：<button class="chip on" id="km-make" style="margin-left:6px">生成钥匙</button></small></div>'
     : `<span class="${k.unlocked ? 'ok' : 'no'}">●</span><div><b>${k.unlocked ? '钥匙在，记忆已解锁' : '找不到钥匙，记忆被锁着'}</b><small>指纹 ${esc(k.fingerprint || '')}</small></div>`;
   $('#km-path').value = k.key_path || ''; $('#km-path').placeholder = k.initialized ? '私钥文件的路径' : '导入记忆时：填上那把钥匙的路径';
@@ -1347,13 +1390,15 @@ $('#connect').onclick = async () => {
   let info = {};
   try { info = await api('api/connect'); } catch { }
   const mcpJson = JSON.stringify({ mcpServers: { 'forget-me-not': info.mcp_stdio || { command: 'npx', args: ['-y', 'dsh-forget-me-not', 'mcp'] } } }, null, 2);
-  const row = (t, v) => v ? `<p class="sub" style="margin:0 0 8px">${t}</p><pre>${esc(v)}</pre>` : '';
+  const vals = [];
+  const row = (t, v, more = '') => { if (!v) return ''; vals.push(v); return `<div class="conn-row"><p class="sub">${t}</p>${more}<pre>${esc(v)}</pre><button class="chip copy" data-i="${vals.length - 1}">复制</button></div>`; };
   $('#conn-body').innerHTML =
-    row('① DeepSeek Harness：', 'dsh plugin --profile web add dsh-forget-me-not') +
-    row('② Claude / Cursor / Cherry Studio 等支持 MCP 的客户端：', mcpJson) +
-    row('③ 远程 MCP（streamable HTTP）：', info.mcp_http) +
-    row('④ 任何能调函数的模型（OpenAI / Gemini / GPTs / Dify / Coze）：', info.openapi) +
-    row('给模型的使用说明（可放进 system prompt）：', info.protocol);
+    row('① DeepSeek Harness（最简单）', 'dsh-forget-me-not', '<p class="hint">桌面版：设置 → 插件 → 输入这个名字安装；命令行：<code>dsh plugin --profile web add dsh-forget-me-not</code>。装好后正常聊天，TA 会自己记。</p>') +
+    row('② Claude Desktop / Cursor / Cherry Studio / LangBot 等支持 MCP 的软件', mcpJson, '<p class="hint">把下面这段粘进软件的 MCP 设置里。</p>') +
+    row('③ 远程 MCP（streamable HTTP）', info.mcp_http) +
+    row('④ 任何能调函数的模型（OpenAI / Gemini / GPTs / Dify / Coze）', info.openapi) +
+    row('给模型的使用说明（可放进 system prompt）', info.protocol);
+  $('#conn-body').querySelectorAll('.copy').forEach(b => b.onclick = () => navigator.clipboard?.writeText(vals[+b.dataset.i]).then(() => { b.textContent = '已复制 ✓'; setTimeout(() => b.textContent = '复制', 1500); }, () => { }));
   $('#connmodal').classList.add('show');
 };
 $('#conn-ok').onclick = () => $('#connmodal').classList.remove('show');
@@ -1426,15 +1471,16 @@ function showWelcome() {
       S.key = k; await loadBrain();
       $('#wm-body').innerHTML = `
         <h4>钥匙做好啦 🔑</h4>
-        <p class="sub">它就在你的桌面上：</p>
+        <p class="sub">它在这里（一般就是你的桌面）：</p>
         <div class="wm-path">${esc(k.key_path)}</div>
         <div class="wm-steps">
           <div><i>✓</i><p><b>现在请做一件事：</b>把这个文件复制到 U 盘、网盘，或者发给自己的邮箱存着。</p></div>
           <div><i>✓</i><p><b>不要改名字、不要挪位置</b>（想挪的话，挪完点右下角的小钥匙，把新位置填进去）。</p></div>
           <div><i>✓</i><p><b>更保险：</b>点「拆成 3 片备份」，任意 2 片就能拼回钥匙，可以分别放在不同的地方。</p></div>
         </div>
-        <div class="row"><button class="chip" id="wm-backup">拆成 3 片备份</button><span style="flex:1"></span><button class="chip on" id="wm-done">我存好了</button></div>`;
+        <div class="row"><button class="chip" id="wm-copy">复制路径</button><button class="chip" id="wm-backup">拆成 3 片备份</button><span style="flex:1"></span><button class="chip on" id="wm-done">我存好了</button></div>`;
       $('#wm-done').onclick = () => wm.classList.remove('show');
+      $('#wm-copy').onclick = () => navigator.clipboard?.writeText(k.key_path).then(() => toast('<b>钥匙</b>路径已复制', '#cfe0ff'), () => { });
       $('#wm-backup').onclick = () => { wm.classList.remove('show'); openKey(); setTimeout(() => $('#km-backup').click(), 200); };
     } catch (e) { $('#wm-err').textContent = e.message; }
   };
@@ -1443,6 +1489,7 @@ function showWelcome() {
 function EMBED_SKIP_WELCOME() { try { return sessionStorage.getItem('fmn-welcome-later') === '1'; } catch { return false; } }
 
 $('#skip').onclick = finishIntro;
+document.querySelector('#intro .t')?.addEventListener('click', finishIntro);
 renderer.domElement.addEventListener('dblclick', finishIntro);
 
 function stepIntro(dt) {

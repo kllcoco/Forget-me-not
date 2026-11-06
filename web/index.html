@@ -74,10 +74,9 @@
 
 <aside id="persona" class="ui"></aside>
 
-<button id="musicbtn" class="ui empty" title="背景音乐"><i><span></span><span></span><span></span><span></span></i><b>音乐</b></button>
 <div id="musicpanel" class="ui"></div>
 <div id="nowplaying" class="ui"></div>
-<button id="keybtn" class="ui" title="超级管理员钥匙"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/></svg><i></i></button>
+<div id="corner" class="ui"><button id="musicbtn" class="empty" title="背景音乐"><i><span></span><span></span><span></span><span></span></i><b>音乐</b></button><button id="keybtn" title="超级管理员钥匙"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/></svg><b>钥匙</b><i></i></button></div>
 
 <div id="card"><div class="frame"></div></div>
 
@@ -95,6 +94,7 @@
 
 <aside id="planetpanel" class="ui"></aside>
 <a id="credit" class="ui" href="https://github.com/kllcoco/Forget-me-not" target="_blank" rel="noopener" title="作者的 GitHub">勿忘我 · 作者 <b>kllcoco</b></a>
+<div id="lockbar" class="ui"></div>
 <div id="tooltip"></div>
 <div id="guide" class="ui"></div>
 
@@ -198,7 +198,7 @@
 <div class="modal" id="connmodal">
   <div class="panel" style="width:min(560px,94vw)">
     <h4>接入任何 AI</h4>
-    <p class="sub">AI 只能「写入新记忆」「联想回想」和「性格养成」。写进去的记忆会被加密封存，谁都不能改、不能删，包括 AI 自己；只有超级管理员钥匙在的时候，记忆才能被打开。</p>
+    <p class="sub">让你的 AI 用上这份记忆：选一种方式，点「复制」粘贴过去就行。AI 只能「写入新记忆」「联想回想」和「性格养成」，不能改、不能删；只有你（超级管理员钥匙在的时候）可以修改或删除。</p>
     <div id="conn-body"></div>
     <div class="row"><button class="chip on" id="conn-ok">好</button></div>
   </div>
