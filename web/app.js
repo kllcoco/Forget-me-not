@@ -1433,6 +1433,24 @@ $('#connect').onclick = async () => {
     row('③ 远程 MCP（streamable HTTP）', info.mcp_http) +
     row('④ 任何能调函数的模型（OpenAI / Gemini / GPTs / Dify / Coze）', info.openapi) +
     row('给模型的使用说明（可放进 system prompt）', info.protocol);
+  // QQ（Aurabot）：记忆模块装好了没有，一键装
+  const ab = await api('api/aurabot').catch(() => null);
+  if (ab) {
+    const state = !ab.found ? '<span class="no">●</span> 还没检测到 Aurabot（装好 Aurabot、走完设置向导后再来）'
+      : ab.running ? '<span class="ok">●</span> 已接管：QQ 里的她用的就是勿忘我的记忆，人设也会自动同步'
+      : ab.installed ? '<span class="ok">●</span> 已装进 Aurabot，<b>完全重启一次 dsh</b> 后生效'
+      : ab.other ? '<span class="no">●</span> Aurabot 里已经有别的记忆模块（点下面的按钮会先备份它再换成勿忘我）'
+      : '<span class="no">●</span> 还没装进 Aurabot';
+    const box = document.createElement('div'); box.className = 'conn-row';
+    box.innerHTML = `<p class="sub">⑤ QQ 伙伴 Aurabot：把它的记忆换成勿忘我</p><p class="hint">${state}<br><code>${esc(ab.dir)}</code></p>
+      ${ab.found && !ab.running ? '<button class="chip on" id="ab-install">装进 Aurabot</button>' : ''}<p class="hint" id="ab-msg"></p>`;
+    $('#conn-body').prepend(box);
+    const btn = box.querySelector('#ab-install');
+    if (btn) btn.onclick = async () => {
+      try { const r = await api('api/aurabot/install', { method: 'POST', body: {} }); $('#ab-msg').innerHTML = `✓ 装好了${r.backup ? '（原来的模块已备份）' : ''}。现在<b>完全退出 dsh 再打开</b>，Aurabot 的「模块」页就会出现「记忆（勿忘我）」。`; btn.remove(); }
+      catch (e) { $('#ab-msg').textContent = e.message; }
+    };
+  }
   $('#conn-body').querySelectorAll('.copy').forEach(b => b.onclick = () => navigator.clipboard?.writeText(vals[+b.dataset.i]).then(() => { b.textContent = '已复制 ✓'; setTimeout(() => b.textContent = '复制', 1500); }, () => { }));
   $('#connmodal').classList.add('show');
 };
