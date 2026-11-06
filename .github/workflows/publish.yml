@@ -1,0 +1,35 @@
+# 发布到 npm：合并到 main 后，只要 package.json 的版本号是新的，就自动发布。也可以在 Actions 页面手动运行。
+# 需要先在仓库 Settings → Secrets and variables → Actions 里添加 NPM_TOKEN（npm 的 Automation / Granular token）。
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # npm provenance：让 npm 页面显示「由这个仓库的 GitHub Actions 构建」
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm test
+      - name: Publish if this version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION 已经发布过了，跳过"
+          else
+            npm publish --provenance --access public
+          fi
