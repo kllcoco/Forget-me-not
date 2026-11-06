@@ -46,7 +46,7 @@
 装好之后，dsh 左侧栏会多一个 **「记忆」** 入口。点进去会**全屏**（盖住 dsh 左侧栏）播放星环成形的过场，然后就能多级缩放、浏览记忆；按 **Esc** 退出全屏。dsh 里的 AI 会自动拿到四个工具，系统提示词里会带上记忆的使用说明和 TA 现在的性格。
 
 ```bash
-# 需要 pnpm 10+，dsh >= 0.2.2-rc.1
+# 需要 pnpm 10+，dsh >= 0.2.1-rc.2
 dsh plugin --profile web add dsh-forget-me-not
 dsh web
 
