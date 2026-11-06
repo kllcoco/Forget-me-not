@@ -17,6 +17,7 @@
   },
   "icon": "./icon.svg",
   "files": [
+    "aurabot",
     "bin",
     "lib",
     "web",
