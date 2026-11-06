@@ -55,6 +55,7 @@ controls.enableDamping = true; controls.dampingFactor = 0.06;
 controls.minDistance = 1.6; controls.maxDistance = 110;
 controls.zoomToCursor = true; controls.zoomSpeed = 0.9; controls.rotateSpeed = 0.55;
 controls.autoRotateSpeed = 0.35; controls.enabled = false;
+controls.enableZoom = false;   // 滚轮缩放自己做：平滑过去，不是一格一格地跳（见下面的 smoothWheel）
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
@@ -94,6 +95,19 @@ const pixelUniforms = () => {
   for (const m of [dust.material, stars.material, fx.points.material, sky.mat, brain.stars.material, ...galaxy.materials]) m.uniforms.uPixel.value = m === sky.mat ? renderer.getPixelRatio() : px;
 };
 pixelUniforms();
+// 电脑带不动时自动降一点清晰度（高分屏 2 倍像素 → 1.5 → 1），保证拖动和缩放跟手
+let fpsAcc = 0, fpsN = 0, qualityAt = 0;
+function adaptQuality(dt) {
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc < 2.5) return;
+  const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
+  const now = performance.now(); if (now - qualityAt < 4000 || document.hidden || S.mode === 'intro') return;
+  const pr = renderer.getPixelRatio();
+  if (fps < 32 && pr > 1) {
+    qualityAt = now; renderer.setPixelRatio(Math.max(1, pr - 0.5));
+    renderer.setSize(innerWidth, innerHeight); composer.setPixelRatio?.(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); pixelUniforms();
+  }
+}
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); pixelUniforms();
@@ -286,7 +300,7 @@ function updateLabels(dist) {
     L.el.style.opacity = o.toFixed(3);
     L.el.style.transform = `translate(${tmp.x}px, ${tmp.y}px) translate(-50%, ${brainLbl ? '-100%' : '-50%'}) scale(${sc.toFixed(3)})`;
     L.el.style.transformOrigin = brainLbl ? '50% 100%' : '50% 50%';
-    L.el.style.pointerEvents = o > 0.3 && !brainLbl ? 'auto' : 'none';
+    L.el.style.pointerEvents = 'none';   // 标签不拦鼠标：在标签上也能拖动、滚轮缩放（点脑区用左边的列表或直接点星光）
   }
 }
 
@@ -1039,7 +1053,40 @@ controls.addEventListener('start', () => {
   hideHint();
 });
 controls.addEventListener('end', () => { S.interacting = false; S.idleAt = performance.now(); });
-renderer.domElement.addEventListener('wheel', () => { S.idleAt = performance.now(); hideHint(); }, { passive: true });
+// ------------------------------------------------------------------ 滚轮 / 触控板：平滑缩放
+// 鼠标滚轮：往指针指着的地方平滑地拉近 / 推远。
+// 触控板：两指滑动 = 转动视角（不用按住拖），两指捏合 = 缩放（浏览器把捏合报告成 ctrlKey + 滚轮）。
+const zoomGoal = { dist: 0, active: false, cx: 0, cy: 0 };
+const isTouchpad = e => !e.ctrlKey && e.deltaMode === 0 && (e.deltaX !== 0 || (Math.abs(e.deltaY) < 40 && !Number.isInteger(e.deltaY)));
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  S.idleAt = performance.now(); hideHint();
+  if (flight || S.mode === 'intro') return;
+  if (reel.on) reel.follow = false;
+  const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+  if (isTouchpad(e)) {
+    // 两指滑动：绕着目标转
+    const off = camera.position.clone().sub(controls.target), sph = new THREE.Spherical().setFromVector3(off);
+    sph.theta -= e.deltaX * 0.004; sph.phi = clamp(sph.phi - dy * 0.004, Math.max(0.05, controls.minPolarAngle), Math.min(Math.PI - 0.05, controls.maxPolarAngle));
+    camera.position.copy(controls.target).add(off.setFromSpherical(sph)); controls.autoRotate = false; $('#rot').classList.remove('on');
+    return;
+  }
+  const cur = zoomGoal.active ? zoomGoal.dist : camera.position.distanceTo(controls.target);
+  const k = Math.exp(dy * (e.ctrlKey ? 0.012 : 0.0016));   // 一格滚轮（100）≈ 拉近 15%
+  zoomGoal.dist = clamp(cur * k, controls.minDistance, controls.maxDistance);
+  zoomGoal.active = true; zoomGoal.cx = e.clientX; zoomGoal.cy = e.clientY;
+}, { passive: false });
+const _ray = new THREE.Raycaster(), _wv = new THREE.Vector2();
+function smoothWheel(dt) {
+  if (!zoomGoal.active || flight) { zoomGoal.active = false; return; }
+  const off = camera.position.clone().sub(controls.target), d = off.length();
+  const next = d + (zoomGoal.dist - d) * (1 - Math.exp(-dt * 14));
+  // 朝指针方向缩放：目标点也往指针下面那一点挪一点（拉近时朝那里飞，推远时从那里退开）
+  _wv.set(zoomGoal.cx / innerWidth * 2 - 1, -(zoomGoal.cy / innerHeight) * 2 + 1); _ray.setFromCamera(_wv, camera);
+  const p = _ray.ray.at(d, new THREE.Vector3()), shift = p.sub(controls.target).multiplyScalar(1 - next / d);
+  controls.target.add(shift); camera.position.copy(controls.target).add(off.setLength(next));
+  if (Math.abs(next - zoomGoal.dist) < zoomGoal.dist * 0.002) zoomGoal.active = false;
+}
 
 function autoReel(dist) {
   if (flight || S.mode === 'intro') return;
@@ -1582,6 +1629,7 @@ let organs = null, time = 0;
 function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.1); time += dt;
+  smoothWheel(dt); adaptQuality(dt);
 
   if (S.mode === 'intro') stepIntro(dt);
   else {
@@ -1605,7 +1653,7 @@ function tick() {
   if (S.follow && S.followOff && !flight && !reel.on && S.view === 'brain') {
     // 镜头跟着行星一起公转（保持相对位置，用户拖动时更新相对位置）
     const h = brain.hub(S.follow), k = 1 - Math.exp(-dt * 3);
-    if (S.interacting) S.followOff.copy(camera.position).sub(controls.target);
+    if (S.interacting || zoomGoal.active) S.followOff.copy(camera.position).sub(controls.target);
     controls.target.lerp(h, k); camera.position.lerp(h.clone().add(S.followOff), k);
   }
   if (!flight && S.mode !== 'intro') { controls.enabled = true; controls.update(); }
