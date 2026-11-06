@@ -1071,8 +1071,9 @@ hintEl.onclick = () => { if (!S.memories.length) { $('#connect').click(); return
 
 // ------------------------------------------------------------------ 事件：写入 / 回想 / 遗忘 的动画
 const feed = $('#feed');
-function toast(html, color) {
+function toast(html, color, onClick) {
   const el = document.createElement('div'); el.className = 'ev'; el.style.setProperty('--c', color || '#bcd6ff'); el.innerHTML = html;
+  if (onClick) { el.style.pointerEvents = 'auto'; el.style.cursor = 'pointer'; el.onclick = () => { el.remove(); onClick(); }; }
   feed.prepend(el);
   while (feed.children.length > 5) feed.lastChild.remove();
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 1300); }, 6500);
@@ -1446,6 +1447,16 @@ function endIntro() {
   S.idleAt = performance.now();
   setTimeout(() => introEl.remove(), 2000);
   setTimeout(showWelcome, 1800);
+  setTimeout(showOnThisDay, 3200);
+}
+// 那年今天：打开的时候，往年的今天有回忆，就轻轻提一句（点一下飞过去放映）
+function showOnThisDay() {
+  if (S.sealed || !S.memories.length) return;
+  const today = new Date();
+  const hits = S.memories.filter(m => { const d = new Date(sortKey(m) * 1000); return d.getFullYear() < today.getFullYear() && d.getMonth() === today.getMonth() && Math.abs(d.getDate() - today.getDate()) <= 1 && m.content; });
+  if (!hits.length) return;
+  const m = hits.sort((a, b) => b.importance - a.importance)[0], y = today.getFullYear() - new Date(sortKey(m) * 1000).getFullYear();
+  toast(`<b>那年今天</b>${y} 年前的这几天：${esc(m.title || m.content.slice(0, 26))}　<u>去看看 →</u>`, S.regionBy[m.region]?.color, () => goMemory(m));
 }
 // ------------------------------------------------------------------ 第一次来：一步一步带着生成钥匙
 const wm = $('#welcomemodal');
