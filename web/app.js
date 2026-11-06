@@ -290,6 +290,7 @@ function updateLabels(dist) {
 // ------------------------------------------------------------------ 图例 / 统计
 function placeLegend() {
   const b = $('#brand').getBoundingClientRect();
+  document.documentElement.style.setProperty('--lockh', $('#lockbar').offsetHeight + 'px');
   const l = $('#legend'); l.style.top = Math.round(b.bottom + 14) + 'px';
   requestAnimationFrame(() => l.classList.toggle('scroll', l.scrollHeight > l.clientHeight + 4));
 }
@@ -584,9 +585,15 @@ function goFullscreen() {
 }
 function onEscape() {
   if ([...document.querySelectorAll('.modal.show')].length) { document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show')); return; }
+  // 先关页面里的小面板，一层层往外退；dsh 里最后才交给外面（退出全屏）
+  const mp = $('#musicpanel'), cm = $('#charmenu'), rs = $('#results');
+  if (mp.classList.contains('show')) { mp.classList.remove('show'); return; }
+  if (cm.classList.contains('show')) { cm.classList.remove('show'); return; }
+  if (rs.classList.contains('show')) { rs.classList.remove('show'); return; }
+  if (reel.on) { exitReel(); return; }
+  if (S.follow || pp.classList.contains('show')) { unfollow(); return; }
   if (EMBED) { parent.postMessage({ type: 'fmn:escape' }, location.origin); return; }
-  // 独立页面：浏览器自己会用 Esc 退出全屏；不在全屏时，Esc 一层层往外退
-  if (reel.on) exitReel(); else if (S.follow) unfollow(); else if (S.view === 'brain') exitBrain();
+  if (S.view === 'brain') exitBrain();
 }
 $('#fsbtn').onclick = goFullscreen;
 addEventListener('message', e => { if (e.origin === location.origin && e.data?.type === 'fmn:fullscreen-state') document.body.classList.toggle('full', !!e.data.full); });
@@ -1228,6 +1235,7 @@ function renderKey() {
     bar.querySelector('[data-a=shares]').onclick = () => { openKey(); setTimeout(() => $('#km-restore').click(), 150); };
     bar.classList.add('show');
   } else bar.classList.remove('show');
+  requestAnimationFrame(placeLegend);
 }
 function openKey() {
   const k = S.key;
