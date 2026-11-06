@@ -219,6 +219,7 @@ body.entered #enter { opacity: 0; pointer-events: none; transform: translate(-50
 /* ---------- modal (锁 / 接入) ---------- */
 .modal { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(1, 3, 8, .6); backdrop-filter: blur(6px);
   opacity: 0; visibility: hidden; transition: opacity .5s, visibility .5s; }
+.modal:not(.show) { pointer-events: none; }
 .modal.show { opacity: 1; visibility: visible; }
 .modal .panel { width: min(420px, 92vw); padding: 30px 30px 26px; border-radius: 22px; background: var(--glass-2); border: 1px solid var(--line);
   box-shadow: 0 40px 120px rgba(0,0,0,.6), 0 0 80px rgba(120, 160, 255, .08); transform: translateY(10px); transition: transform .6s var(--ease); }
@@ -426,19 +427,21 @@ body.brain #enter, body.reel #enter { opacity: 0; pointer-events: none; }
   #brand h1 { font-size: 28px; }
   #brand .poem { display: none; }
   #legend { display: none; }
-  #search { right: 16px; left: 16px; top: 108px; width: auto; }
+  #search { right: 16px; left: 16px; top: 138px; width: auto; }
   #enter { top: auto; bottom: 120px; white-space: nowrap; letter-spacing: .2em; font-size: 12px; }
   .chip { padding: 7px 11px; font-size: 11.5px; letter-spacing: .08em; }
   #reelbar { bottom: 14px; }
   body.reel #search { opacity: 0; pointer-events: none; }
   #strip .fr { width: 38px; height: 38px; } #strip .fr.on { width: 50px; height: 50px; }
   #feed { display: none; }
-  #persona { left: 16px; right: 16px; width: auto; top: 160px; }
+  #persona { left: 16px; right: 16px; width: auto; top: 192px; }
   /* 手机上人设卡默认只露头像那一行，点开才展开雷达图——不然整张卡盖住太阳系，3D 标签全被 underUI() 压暗 */
   #persona:not(.open) > :is(svg, ul, .desc, .pbtns) { display: none; }
   #persona:not(.open) .card-head { margin-bottom: 0; }
-  #toolbar { left: 16px; right: 16px; bottom: 18px; flex-wrap: wrap; }
-  #zoom { right: 12px; }
+  #toolbar { left: 16px; right: 16px; bottom: 46px; flex-wrap: wrap; }
+  #zoom, body.brain #zoom { display: none; }   /* 手机上用双指缩放 */
+  #credit { display: none; }
+  body.reel #corner { opacity: 0; pointer-events: none; }
   #card { width: min(340px, calc(100vw - 32px)); }
 }
 
@@ -497,7 +500,7 @@ body:has(#planetpanel.show) #persona { opacity: 0; pointer-events: none; }
 #credit:hover { opacity: 1; }
 body.reel #credit, body.intro #credit { opacity: 0; pointer-events: none; }
 /* 脑图里右边有人设卡 / 行星小窗，缩放条挪到它们左边 */
-body.brain #zoom { right: 346px; }
+body.brain #zoom { right: 366px; }
 
 /* ---------- 心核：拖角色卡 ---------- */
 .cm-card { display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: center; padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); margin-bottom: 12px; }
@@ -550,3 +553,8 @@ body:has(#musicpanel.show) #persona, body:has(#musicpanel.show) #planetpanel { o
 
 /* 右下角：音乐和钥匙排成一排，宽度变了也不会叠在一起 */
 #corner { right: 16px; bottom: 8px; display: flex; gap: 8px; align-items: center; z-index: 8; }
+
+/* 音乐面板打开时，缩放条也让开 */
+body:has(#musicpanel.show) #zoom { opacity: 0; pointer-events: none; }
+/* 窄屏的走马灯：右下角按钮让开放映条 */
+@media (max-width: 1100px) { body.reel #corner { opacity: 0; pointer-events: none; } }

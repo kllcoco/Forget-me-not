@@ -538,9 +538,10 @@ function placeCard(dt) {
   const w = card.offsetWidth || 340, h = card.offsetHeight || 300;
   let x = p.x + 90, y = p.y - h * 0.42, side = 1;
   if (x + w > innerWidth - 24) { x = p.x - 90 - w; side = -1; }
-  y = clamp(y, 24 + innerHeight * 0.09, innerHeight - h - 150);
+  const rb = ($('#reelbar').offsetHeight || 170) + 28;   // 给底下的放映条留出位置
+  y = clamp(y, 24 + innerHeight * 0.09, innerHeight - h - rb);
   x = clamp(x, 16, innerWidth - w - 16);
-  if (innerWidth < 760) { x = (innerWidth - w) / 2; y = Math.max(16 + innerHeight * 0.09, innerHeight - h - 150); side = p.x < x + w / 2 ? 1 : -1; }
+  if (innerWidth < 760) { x = (innerWidth - w) / 2; y = Math.max(16 + innerHeight * 0.09, innerHeight - h - rb); side = p.x < x + w / 2 ? 1 : -1; }
   if (!cardPos.init) { cardPos.x = x; cardPos.y = y; cardPos.init = true; }
   const k = 1 - Math.exp(-dt * 6);
   cardPos.x = lerp(cardPos.x, x, k); cardPos.y = lerp(cardPos.y, y, k);
