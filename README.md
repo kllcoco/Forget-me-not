@@ -65,7 +65,7 @@ dsh plugin --profile tui add dsh-forget-me-not
       name: dsh-forget-me-not
       config:
         autoDigest: true    # 每段对话结束后自动总结成记忆
-        digestEvery: 1      # 每几轮总结一次（太短的闲聊会自动跳过）
+        digestEvery: 3      # 每几轮总结一次（说到重要的事会立刻总结；太短的闲聊会自动跳过）
         autoRecall: true    # 用户每说一句话，自动想起可能相关的记忆放进上下文
 ```
 
@@ -103,6 +103,10 @@ codex plugin marketplace add kllcoco/Forget-me-not
 ```
 
 也可以用远程 MCP（streamable HTTP）：`http://127.0.0.1:7777/mcp`。
+
+### ⑥ QQ（NapCat + LangBot）
+
+私聊有问必答，群里只在被 @ 或叫名字时才说话（不烧 token），还会时不时主动来找你聊天。一步一步的教程见 [docs/QQ接入.md](docs/QQ接入.md)。
 
 ### ⑤ 任何能调用函数的模型（OpenAI / Gemini / GPTs / Dify / Coze …）
 
@@ -259,6 +263,16 @@ images/*.bin    加密后的配图
 - 星环小钥匙里点「备份钥匙」，会打开一张可以打印的页面，每片一个二维码，也可以存成文本。
 - 钥匙丢了：点「用碎片恢复」，选任意 2 片，钥匙会重新放到桌面并自动登记。
 - 命令行：`forget-me-not key split`，以及 `forget-me-not key restore 碎片1.txt 碎片2.txt`。
+
+### 主动找你聊天
+
+TA 不只是等你开口：隔一阵子会主动来问问你——前几天你说的面试怎么样了、饭点吃了没、那年今天、周日晚上「这周我记住了你的这些事」、还有「我眼中的你」里一直想知道的事。
+每天最多 3 次、9 点到 23 点、两次至少隔 3 小时；你正在聊天时不打扰，连着被冷落就自觉少来。
+`forget-me-not proactive --once --dry-run` 先看看 TA 会说什么；接 QQ 见 [docs/QQ接入.md](docs/QQ接入.md)。
+
+### 省 token
+
+自动总结会攒几轮再一起做；聊到生日、过敏、喜欢讨厌、约定这类事才立刻总结（dsh 的 `digestEvery` 默认 3，Claude Code / Codex 用 `FMN_DIGEST_EVERY`）。
 
 ### 回忆时间线
 工具栏的「时间线」：一年里每一天留下了多少记忆（越亮越多）、「那年今天」、按月份翻看。点任意一段，镜头就会飞过去放映。
