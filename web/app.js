@@ -831,7 +831,7 @@ async function importCard(file) {
     const d = json.data || json;
     const firstLine = s => String(s || '').split('\n').map(x => x.trim()).find(Boolean) || '';
     openPersonaEditor({
-      name: d.name || d.char_name || '', title: firstLine(d.creator_notes).slice(0, 60) || (d.tags || []).slice(0, 3).join(' · '),
+      name: d.name || d.char_name || '', gender: d.gender || d.extensions?.gender || ((d.tags || []).includes('女') ? '女' : (d.tags || []).includes('男') ? '男' : ''), title: firstLine(d.creator_notes).slice(0, 60) || (d.tags || []).slice(0, 3).join(' · '),
       description: d.description || d.char_persona || '', personality: d.personality || '', scenario: d.scenario || d.world_scenario || '',
       speaking_style: d.mes_example || d.example_dialogue || '', first_mes: d.first_mes || d.char_greeting || '', avatar: avatar || undefined,
     });
