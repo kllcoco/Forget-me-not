@@ -246,13 +246,14 @@ function project(p, out = {}) {
 // 3D 标签飘到左边图例、底部按钮、右边卡片下面时自动变淡，不和界面文字叠在一起
 const UI_COVER = ['#legend', '#toolbar', '#persona', '#planetpanel', '#musicpanel', '#brand', '#zoom', '#search'];
 let coverRects = [], coverAt = 0;
-function underUI(x, y) {
+function underUI(l, t, r, b) {
   const now = performance.now();
   if (now - coverAt > 400) {
     coverAt = now;
     coverRects = UI_COVER.map(s => document.querySelector(s)).filter(e => e && +getComputedStyle(e).opacity > 0.1).map(e => e.getBoundingClientRect()).filter(r => r.width > 0);
   }
-  return coverRects.some(r => x > r.left - 24 && x < r.right + 24 && y > r.top - 16 && y < r.bottom + 16);
+  // 用标签的整个框判断：框的任何一部分碰到界面（留一点空隙）就算压上了
+  return coverRects.some(c => l < c.right + 12 && r > c.left - 12 && t < c.bottom + 8 && b > c.top - 8);
 }
 // 脑图里标签的优先级：心核 > 我眼中的你 > 记忆行星 > 过程器官；后画的撞上先画的就压暗，避免中心一团字叠在一起
 const LBL_PRIO = L => L.region.key === 'sun' ? 0 : L.region.kind === 'satellite' ? 1 : L.region.kind === 'process' ? 3 : 2;
@@ -274,8 +275,10 @@ function updateLabels(dist) {
     // 脑图里标签整个放在行星上方（底边对齐），并且让鼠标穿过去，这样不会挡住行星
     const brainLbl = L.view === 'brain';   // 脑图里所有标签（包括太阳的）都让鼠标穿过，点击交给画面去判断
     const w = (L.w ||= L.el.offsetWidth) * sc, h = (L.h ||= L.el.offsetHeight) * sc;
-    const cy = brainLbl ? tmp.y - h / 2 : tmp.y;   // 用标签框的中心判断，而不是锚点（脑图标签在锚点上方）
-    if (o > 0.01 && underUI(tmp.x, cy)) o *= 0.06;
+    const top = brainLbl ? tmp.y - h : tmp.y - h / 2;   // 脑图标签在锚点上方，星环标签以锚点为中心
+    const covered = o > 0.01 && underUI(tmp.x - w / 2, top, tmp.x + w / 2, top + h);
+    if (covered) o = 0;
+    L.el.style.transition = covered ? 'none' : '';   // 压到界面上就立刻消失，不要慢慢淡出（转着转着会拖着残影划过列表）
     if (brainLbl && o > 0.3) {
       const r = { l: tmp.x - w / 2, r: tmp.x + w / 2, t: tmp.y - h, b: tmp.y };
       if (placed.some(q => r.l < q.r && r.r > q.l && r.t < q.b && r.b > q.t)) o *= 0.15; else placed.push(r);
@@ -289,12 +292,16 @@ function updateLabels(dist) {
 
 // ------------------------------------------------------------------ 图例 / 统计
 function placeLegend() {
-  const b = $('#brand').getBoundingClientRect();
+  // 标题区的真实底边：标题、诗句、统计、角色按钮里最低的那个（字体加载完、名字变长都会变）
+  const b = { bottom: Math.max(...[$('#brand'), ...$('#brand').querySelectorAll('h1, .poem, .stats, .chars > button')].map(e => e.getBoundingClientRect()).filter(r => r.height > 0).map(r => r.bottom)) };
   document.documentElement.style.setProperty('--lockh', $('#lockbar').offsetHeight + 'px');
   const l = $('#legend'); l.style.top = Math.round(b.bottom + 14) + 'px';
   requestAnimationFrame(() => l.classList.toggle('scroll', l.scrollHeight > l.clientHeight + 4));
 }
 addEventListener('resize', placeLegend);
+// 标题区高度一变（字体加载完、换了名字、诗句换行），列表马上跟着挪
+try { new ResizeObserver(() => placeLegend()).observe($('#brand')); } catch { }
+document.fonts?.ready?.then(placeLegend);
 $('#legend').addEventListener('scroll', e => e.target.classList.toggle('at-end', e.target.scrollTop + e.target.clientHeight >= e.target.scrollHeight - 4));
 function renderLegend() {
   const el = $('#legend'); requestAnimationFrame(placeLegend);
