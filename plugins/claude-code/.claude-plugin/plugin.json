@@ -1,7 +1,7 @@
 {
   "name": "forget-me-not",
   "displayName": "勿忘我 · 记忆星环",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "给 Claude 的封存式长期记忆：自动总结对话、联想召回、艾宾浩斯遗忘、可塑性性格与人设卡；/forget-me-not:memory 打开 3D 莫比乌斯记忆星环。",
   "author": {
     "name": "kllcoco"
