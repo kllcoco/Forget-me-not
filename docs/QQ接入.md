@@ -1,103 +1,65 @@
-# 把 TA 接进 QQ（NapCat + LangBot + 勿忘我）
+# 把 TA 接进 QQ（dsh 桌面版 + Aurabot + 勿忘我）
 
 接好之后：
 
-- QQ 私聊里，你问 TA 就答；TA 记住的事和 dsh 里是**同一份记忆**。
-- 群聊里，**只有 @ TA 或者以 TA 的名字开头**说话，TA 才会回；其他人聊天 TA 完全不看，一个 token 都不花。
-- TA 会时不时**主动来私聊你**：问问你前几天说的事后来怎么样了、饭点问你吃了没、那年今天、周日晚上的「这周我记住了你的这些事」。
-
-整体就三块积木，都装在**同一台电脑**上：
+- TA 用一个 QQ 小号和你私聊、进群聊天，能发表情包、发语音、写空间日记、主动来找你（这些是 [Aurabot](https://github.com/aureth-labs/dsh-aurabot-qq) 的本事）；
+- TA 的记忆**只有一份，就是勿忘我**：QQ 里、dsh 里、记忆星环里看到的都是同一个大脑；
+- 你在**私聊**里说的事，记进你的加密大脑和「我眼中的你」；
+- **群友**的事记进单独的「QQ 群友」大脑，一人一张小档案，永远不会和你的事混在一起；
+- 你在**群里**说的话不记（群里多半是玩笑）；
+- 群里只在被 @、被回复、或者有人叫 TA 名字时才说话（再发一句 `/quiet`，连偶尔插话都不会了），不白烧 token。
 
 ```
-QQ  ⇄  NapCat（登录 QQ 号）  ⇄  LangBot（让 TA 会聊天）  ⇄  DeepSeek
-                                      │
-                                      └── 勿忘我（记忆 + 主动找你）
+QQ  ⇄  SnowLuma / NapCat（登录 QQ 小号）  ⇄  dsh 桌面版（Aurabot + 勿忘我）  ⇄  DeepSeek
 ```
 
-> 下面写到的菜单名字，以你装的版本为准；对不上的话截图给我看。
+> 菜单名字以你装的版本为准；对不上就截图问我。
 
 ---
 
-## 第 1 步：装 NapCat，让一个 QQ 号上线
+## 第 1 步：装勿忘我
 
-1. 准备一个给 TA 用的 QQ 小号。
-2. 按 NapCat 官方文档安装并扫码登录（Windows 有一键包）。
-3. 打开 NapCat 的 WebUI → **网络配置**，新建两个：
-   - **HTTP 服务器**：端口 `3000`，设置一个 **Token**（随便一串字母数字，记下来）。勿忘我用它来「主动发消息」。
-   - **WebSocket 客户端（反向 WS）**：地址填 LangBot 给的地址（第 2 步会看到，一般是 `ws://127.0.0.1:2280/ws`）。LangBot 用它来收发聊天消息。
+dsh 桌面版 → 设置 → 插件 → 输入 `dsh-forget-me-not` 安装 → 重启桌面版。左侧栏出现「记忆」就成功了。
 
-## 第 2 步：装 LangBot，接上 DeepSeek
+## 第 2 步：装 Aurabot
 
-1. 按 LangBot 官方文档安装。**建议直接装在电脑上，不要用 Docker**（用 Docker 的话，里面的 `127.0.0.1` 指的是容器自己，连不到勿忘我）。
-2. 打开 LangBot 的 WebUI：
-   - **模型**：添加 DeepSeek，填你的 DeepSeek API Key，选 `deepseek-chat`，打开「工具调用 / Function Calling」。
-   - **机器人**：添加一个 OneBot v11（aiocqhttp）机器人，它会显示反向 WS 的地址，填回 NapCat 第 1 步。
-3. **流水线（Pipeline）**设置：
-   - **AI 运行器**：用内置 Agent，模型选刚才的 DeepSeek。
-   - **人设 / 系统提示词**：把人设卡（比如 `绯语-人设卡.json`）里 `system_prompt`、`description`、`personality`、`scenario` 的内容粘进去。
-   - **群聊响应规则**（最重要，省 token 全靠它）：
-     | 选项 | 填什么 | 意思 |
-     |---|---|---|
-     | 被 @ 时响应（at） | **开** | 有人 @ TA 才回 |
-     | 前缀（prefix） | `绯语` | 消息以「绯语」开头也会回 |
-     | 随机响应概率（random） | **0** | 其他消息一律不理 |
-     | 正则（regexp） | 留空 | |
-   - **私聊**：默认每条都回，不用改。
-   - **对话历史 / 上下文轮数**：群聊建议调小（比如 4 轮），也能省 token。
+按 Aurabot 的说明安装（Windows 桌面版是在 PowerShell 里用 dsh 自带的 `dsh.cmd` 加插件，装好重启）。
+左侧栏「自动化任务」下出现 Aurabot 后，跟着设置向导填：
 
-## 第 3 步：开勿忘我，并接进 LangBot
+- **机器人 QQ 号**：给 TA 用的小号（别用大号：这类工具是非官方登录，偶尔会被风控）；
+- **你的 QQ 号**：TA 就靠这个号认出谁是主人，群友改昵称、说「我是你主人」都没用；
+- **QQ 网关**：Windows 选 SnowLuma 最省事；也可以接你已有的 NapCat。
 
-1. 在电脑上开一个终端，填上你自己的信息后运行：
+## 第 3 步：重启一次 dsh 桌面版
 
-   **Windows（PowerShell）：**
-   ```powershell
-   $env:DEEPSEEK_API_KEY="你的 DeepSeek Key"
-   $env:FMN_QQ="你自己的 QQ 号"
-   $env:FMN_ONEBOT_URL="http://127.0.0.1:3000"
-   $env:FMN_ONEBOT_TOKEN="第 1 步设置的 Token"
-   npx -y dsh-forget-me-not serve
-   ```
+勿忘我看到 Aurabot 后，会**自动把 Aurabot 的记忆换成勿忘我**（日志里会出现「已把它的记忆换成勿忘我」）。
+你什么都不用做。不想换的话，在勿忘我的配置里写 `aurabot.module: builtin`，再删掉 Aurabot 数据目录里的 `modules/memory` 文件夹。
 
-   **Mac / Linux：**
-   ```bash
-   DEEPSEEK_API_KEY=你的Key FMN_QQ=你的QQ号 FMN_ONEBOT_URL=http://127.0.0.1:3000 FMN_ONEBOT_TOKEN=你的Token \
-     npx -y dsh-forget-me-not serve
-   ```
+> 用命令行的话也可以手动装：`npx -y dsh-forget-me-not aurabot install`（卸载：`… aurabot uninstall`）。
 
-   看到「主动聊天：开」就对了。这个窗口不要关（关了 TA 就不会主动找你，记忆也连不上）。
+## 第 4 步：人设和名字
 
-2. LangBot WebUI → **插件 / MCP 管理** → 添加 MCP 服务器：
-   - 类型选 **远程（HTTP / Streamable HTTP）**
-   - 地址：`http://127.0.0.1:7777/mcp`
-   - 点「测试」，能看到 5 个工具（`memory_wake`、`memory_remember`、`memory_recall`、`portrait_update`、`persona_reflect`）就成功了，再点开关启用。
-   - 回到流水线，在扩展里允许 Agent 使用这个 MCP 服务器。
+- 在 Aurabot 面板的「**人格**」页，把人设卡（比如 `绯语-人设卡.json` 里的人设、性格、说话方式）粘进去，设为当前；
+- 想让群友叫「绯语」也能叫到 TA：把 Aurabot 的唤醒词改成 `绯语`（设置项 `group.wakeWords`）；
+- 勿忘我那边的心核人设卡也换成同一张，记忆星环里显示的就是 TA 的名字。
 
-3. 浏览器打开 <http://127.0.0.1:7777> 就是记忆星环；在 dsh 里装了插件的话，dsh 里的「记忆」也是同一份。
+## 第 5 步：群里让 TA 安静点
 
-## 主动聊天可以调
+- 在 Aurabot 面板「权限」里把群加进白名单，TA 才会进这个群；
+- 「群聊」页把**插话概率**调低或调到 0；或者直接在群里发 `/quiet`：只在被叫到时说话；
+- `/闭嘴` 完全不说话，`/normal` 恢复。
 
-在第 3 步的命令前面多加几个变量就行：
+## 主动来找你
 
-| 变量 | 默认 | 意思 |
-|---|---|---|
-| `FMN_PROACTIVE_HOURS` | `9-23` | 只在这个时间段来找你 |
-| `FMN_PROACTIVE_MAX` | `3` | 每天最多来几次 |
-| `FMN_PROACTIVE_GAP` | `3` | 两次之间至少隔几小时 |
+用 Aurabot 自带的「**主动搭话**」：只在私聊里，可以设醒着的时间段和频率。
+（勿忘我自己也有一个主动聊天功能，那是给不用 Aurabot 的人用的。用 Aurabot 时**不要再开**，不然 TA 会找你两遍。）
 
-还有几条规矩是写死的，让 TA 不烦人：
+## 钥匙不在的时候
 
-- 你正在跟 TA 聊（最近 40 分钟有对话）时不打扰；
-- 连着两次你都没理，那天就最多来一次；
-- 不会准点来，时间带一点随机，像真人一样。
+钥匙文件不在登记的位置时，TA 照样能聊天，只是想不起以前的事，会说「记忆暂时打不开」。钥匙放回去就好了。
 
-想先看看 TA 会说什么、又不想真的发出去：
+## 小提示
 
-```bash
-npx -y dsh-forget-me-not proactive --once --dry-run
-```
-
-## 花多少钱
-
-- 群里：只有 @ 或叫名字才调用模型，其他消息零花费。
-- 主动聊天：每次一条消息，一天最多 3 次，每次大约 1～2 千 token。
-- 自动总结记忆：攒几轮再一起总结；聊到生日、过敏、喜欢讨厌、约定这类事才会马上总结。
+- Aurabot 以前存的旧记忆（它自己的 SQLite 数据库）不会自动搬进勿忘我；
+- 在私聊里说「记住……」TA 会马上记下；说「忘掉……」TA 不会再想起那件事，但原文仍然封存着，真正删除要在记忆星环里用钥匙操作；
+- 过敏、忌口这类「免疫区」的事，说「忘掉」也不会忘。

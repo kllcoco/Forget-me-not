@@ -114,11 +114,13 @@ codex plugin marketplace add kllcoco/Forget-me-not
 
 ### ⑥ QQ（NapCat + LangBot）
 
-私聊有问必答，群里只在被 @ 或叫名字时才说话（不烧 token），还会时不时主动来找你聊天。一步一步的教程见 [docs/QQ接入.md](docs/QQ接入.md)。
+推荐在 dsh 桌面版里装 [Aurabot](https://github.com/aureth-labs/dsh-aurabot-qq) + 勿忘我：表情包、语音、空间、主动搭话交给 Aurabot，记忆只有一份（勿忘我）。一步一步的教程见 [docs/QQ接入.md](docs/QQ接入.md)。
 
 ### ⑦ Aurabot（dsh 里的 QQ 伙伴）：只有一份记忆
 
 Aurabot 自带一套明文的 SQLite 记忆。装上勿忘我版的记忆模块，就把它整个换掉——QQ 里的她和 dsh 里的她用同一个大脑：
+
+dsh 里同时装了 Aurabot 和勿忘我的话，**重启一次 dsh 就自动换好了**，不用敲命令（配置 `aurabot.module: builtin` 可以关掉）。命令行手动装：
 
 ```bash
 forget-me-not aurabot install            # 默认装进 ~/.dsh/plugins-data/aurabot（Windows：%USERPROFILE%\.dsh\plugins-data\aurabot）
