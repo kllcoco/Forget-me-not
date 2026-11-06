@@ -43,21 +43,22 @@
 
 ### ① DeepSeek Harness（dsh）插件
 
-装好之后，dsh 左侧栏会多一个 **「记忆」** 入口。点进去会**全屏**（盖住 dsh 左侧栏）播放星环成形的过场，然后就能多级缩放、浏览记忆；按 **Esc** 退出全屏。dsh 里的 AI 会自动拿到四个工具，系统提示词里会带上记忆的使用说明和 TA 现在的性格。
+装好之后，dsh 左侧栏会多一个 **「记忆」** 入口。点进去会**全屏**（盖住 dsh 左侧栏）播放星环成形的过场，然后就能多级缩放、浏览记忆；按 **Esc** 退出全屏。dsh 里的 AI 会自动拿到五个工具，系统提示词里会带上记忆的使用说明和 TA 现在的性格。
+
+**dsh 桌面版**（最简单）：设置 → 插件 → 输入包名 `dsh-forget-me-not` 安装，装好后重启桌面版。
+
+**命令行 / 网页版**：
 
 ```bash
 # 需要 pnpm 10+，dsh >= 0.2.1-rc.2
 dsh plugin --profile web add dsh-forget-me-not
 dsh web
-
-# 想在终端版里也用：
-dsh plugin --profile tui add dsh-forget-me-not
 ```
 
 不需要任何设置：模型第一次写记忆时，会自动在桌面生成钥匙并告诉你。
 
 在 dsh 里，插件会**借用你当前对话正在用的模型**来自动总结和联想，不需要额外配置任何 key。
-可选配置（写在 `$DSH_HOME/profiles/web/cordis.patch.yml` 的这一行下面）：
+可选配置（桌面版写在 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 或 `$DSH_HOME/cordis.patch.yml`，网页版写在 `$DSH_HOME/profiles/web/cordis.patch.yml`）：
 
 ```yaml
 - insert:
@@ -67,7 +68,14 @@ dsh plugin --profile tui add dsh-forget-me-not
         autoDigest: true    # 每段对话结束后自动总结成记忆
         digestEvery: 3      # 每几轮总结一次（说到重要的事会立刻总结；太短的闲聊会自动跳过）
         autoRecall: true    # 用户每说一句话，自动想起可能相关的记忆放进上下文
+        character: 绯语     # 用哪个角色的大脑（角色名或 id；不写就是主角色；写错了会退回主角色）
+        aurabot:            # 和 Aurabot（QQ 插件）一起用时
+          group: off        #   群聊 / 陌生人会话里不用勿忘我（默认）；full = 也用（不推荐：群友能翻主人的记忆）
+          private: full     #   主人私聊里用勿忘我（默认）
+          persona: false    #   主人私聊里不叠加勿忘我的人设卡，人设交给 Aurabot（默认）
 ```
+
+dsh 重启后续接旧会话，不会把整段历史重新总结一遍；子代理（subagent）的任务也不会被当成你说的话记下来。
 
 ### ② Claude Code 插件
 
@@ -175,7 +183,7 @@ AI **没有**修改和删除的工具。写错了，它只能再写一条更正�
 
 ⚠️ **钥匙只有一份，丢了就再也打不开这些记忆**，谁也无法重新生成。也请不要把钥匙交给 AI。如果 AI 有读取你桌面的权限，它理论上能读到这个文件，所以备份后可以把钥匙挪到别处，再用小钥匙按钮更新路径。
 
-数据目录：独立运行时是 `~/.forget-me-not/`，dsh 里是 `$DSH_HOME/forget-me-not/`，也可以用环境变量 `FMN_HOME` 指定。生成钥匙的目录可以用 `FMN_KEY_DIR` 改。
+数据目录：`~/.forget-me-not/`（独立运行、dsh、Claude Code、Codex 共用同一份），也可以用环境变量 `FMN_HOME` 指定。生成钥匙的目录可以用 `FMN_KEY_DIR` 改。
 
 ```
 vault.json      公钥、指纹、钥匙的路径（没有私钥）
@@ -217,7 +225,7 @@ images/*.bin    加密后的配图
 
 进入记忆后，**音乐文件夹里的每一首歌会依次循环播放**（mp3 / m4a / aac / ogg / opus / flac / wav / webm）。
 
-- 音乐文件夹：`数据目录/music/`（独立运行时是 `~/.forget-me-not/music/`，dsh 里是 `$DSH_HOME/forget-me-not/music/`），也可以用 `FMN_MUSIC_DIR` 指定。
+- 音乐文件夹：`数据目录/music/`（默认 `~/.forget-me-not/music/`；每个角色有自己的音乐文件夹），也可以用 `FMN_MUSIC_DIR` 指定。
 - 更简单的办法：直接把歌拖进记忆星环的页面，就会放进这个文件夹并开始播放。
 - 右下角的小音符：点一下暂停或继续；换歌时会浮出歌名。
 - 想放《可塑性记忆》的 OP / ED？请放你自己合法拥有的音源，自己听没问题。歌曲有版权，即使是免费、非商业的开源项目也不能把歌打包分发，所以本项目不附带任何歌曲。
@@ -249,7 +257,7 @@ images/*.bin    加密后的配图
 ### 一个角色一个大脑
 同时养好几个角色（比如「星眠」和「大肥鱼」）时，每个角色都有自己的记忆、自己的人设卡、自己的钥匙，互不相通。
 - 记忆星环左上角的角色按钮可以切换角色、新建角色。主角色在 `/`，其他角色在 `/c/<角色 id>/`。
-- 给 AI 选角色：环境变量 `FMN_CHARACTER=<角色 id>`（MCP、Claude Code、Codex 插件），或 dsh 配置里的 `character`。
+- 给 AI 选角色：环境变量 `FMN_CHARACTER=<角色 id>`（MCP、Claude Code、Codex 插件），或 dsh 配置里的 `character`（写角色名或 id 都行）。
 - 命令行：`forget-me-not characters` 列出角色，`forget-me-not characters new 大肥鱼` 新建。
 
 ### 记忆会过时
