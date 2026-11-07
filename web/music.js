@@ -5,7 +5,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 
 export function createMusic({ onToast }) {
   const audio = new Audio(); audio.preload = 'auto'; audio.volume = 0
-  let tracks = [], dir = '', i = 0, wanted = true, fadeTimer = null, level = 0.55
+  let tracks = [], dir = '', i = 0, wanted = true, fadeTimer = null, level = 0.55, blocked = false
+  const fmt = t => !isFinite(t) || t < 0 ? '0:00' : `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
   try { const v = Number(localStorage.getItem('fmn-volume')); if (v >= 0 && v <= 1 && localStorage.getItem('fmn-volume') !== null) level = v } catch { }
   const btn = document.querySelector('#musicbtn'), cap = document.querySelector('#nowplaying'), panel = document.querySelector('#musicpanel')
 
@@ -22,26 +23,44 @@ export function createMusic({ onToast }) {
 
   function render() {
     btn.classList.toggle('on', playing())
+    btn.classList.toggle('blocked', blocked && tracks.length > 0)
     btn.classList.toggle('empty', !tracks.length)
     btn.querySelector('b').textContent = tracks.length ? '音乐' : '添加音乐'
-    btn.title = tracks.length ? (playing() ? `正在播放：${tracks[i].name}` : '背景音乐') : '还没有歌：点这里添加'
+    btn.title = tracks.length ? (blocked ? '浏览器拦住了自动播放：点一下开始' : playing() ? `正在播放：${tracks[i].name}` : '背景音乐') : '还没有歌：点这里添加'
     if (!panel.classList.contains('show')) return
     panel.innerHTML = `
       <button class="x" title="关闭">✕</button>
       <h5>背景音乐 <small>${tracks.length ? `${tracks.length} 首 · 循环播放` : ''}</small></h5>
       ${tracks.length ? `<div class="tracks">${tracks.map((t, k) => `<button class="${k === i ? 'cur' : ''}" data-k="${k}"><span>${k === i && playing() ? '♪' : String(k + 1).padStart(2, '0')}</span>${esc(t.name)}</button>`).join('')}</div>
+      <div class="seek"><span class="t cur">${fmt(audio.currentTime)}</span><input type="range" class="pos" min="0" max="1000" step="1" value="${audio.duration ? Math.round(audio.currentTime / audio.duration * 1000) : 0}" title="拖动跳到这首歌的任意位置"><span class="t dur">${fmt(audio.duration)}</span></div>
       <div class="ctl"><button data-a="prev" title="上一首">⏮</button><button data-a="toggle" class="main" title="播放 / 暂停">${playing() ? '⏸' : '▶'}</button><button data-a="next" title="下一首">⏭</button>
-        <input type="range" min="0" max="1" step="0.01" value="${level}" title="音量"></div>`
+        <span class="vol" title="音量">🔈</span><input type="range" class="volume" min="0" max="1" step="0.01" value="${level}" title="音量"></div>
+      ${blocked ? '<p class="blocked">浏览器拦住了自动播放，点一下 ▶ 就开始</p>' : ''}`
         : `<p class="empty">还没有歌。点下面的「添加音乐」选几首喜欢的歌，或者把 mp3 / flac 直接拖进页面。进入记忆时会一首接一首循环播放。</p>`}
       <label class="chip on add">＋ 添加音乐<input type="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.flac,.wav,.webm" multiple hidden></label>
       ${dir ? `<div class="dir"><span>也可以直接把歌复制进这个文件夹：</span><code>${esc(dir)}</code><div><button data-a="copy">复制路径</button><button data-a="reload">刷新列表</button></div></div>` : ''}`
     panel.querySelector('.x').onclick = () => togglePanel(false)
     panel.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { i = +b.dataset.k; audio.src = ''; wanted = true; play() })
     panel.querySelectorAll('[data-a]').forEach(b => b.onclick = () => act(b.dataset.a))
-    const vol = panel.querySelector('input[type=range]')
+    const vol = panel.querySelector('input.volume')
+    const pos = panel.querySelector('input.pos')
+    if (pos) {
+      // 拖进度条：拖的时候先不跟着播放进度跳，松手再跳过去
+      pos.oninput = () => { seeking = true; const c = panel.querySelector('.seek .cur'); if (c && audio.duration) c.textContent = fmt(pos.value / 1000 * audio.duration) }
+      pos.onchange = () => { seeking = false; if (!audio.duration) return; audio.currentTime = pos.value / 1000 * audio.duration; if (audio.paused) { wanted = true; play() } }
+    }
     if (vol) vol.oninput = () => { level = +vol.value; clearInterval(fadeTimer); audio.volume = level; try { localStorage.setItem('fmn-volume', String(level)) } catch { } }
     panel.querySelector('.add input').onchange = e => { upload([...e.target.files]); e.target.value = '' }
   }
+  let seeking = false
+  // 播放进度：只更新进度条和时间，不整块重画（不然拖不动）
+  audio.addEventListener('timeupdate', () => {
+    if (!panel.classList.contains('show') || seeking) return
+    const pos = panel.querySelector('input.pos'), c = panel.querySelector('.seek .cur'), d = panel.querySelector('.seek .dur')
+    if (pos && audio.duration) pos.value = Math.round(audio.currentTime / audio.duration * 1000)
+    if (c) c.textContent = fmt(audio.currentTime); if (d) d.textContent = fmt(audio.duration)
+  })
+  audio.addEventListener('loadedmetadata', () => { const d = panel.querySelector('.seek .dur'); if (d) d.textContent = fmt(audio.duration) })
   function announce() {
     if (!tracks.length) return
     cap.textContent = `♪ ${tracks[i].name}`; cap.classList.add('show')
@@ -50,7 +69,13 @@ export function createMusic({ onToast }) {
   async function play() {
     if (!tracks.length) return
     if (!audio.src || !audio.src.endsWith(encodeURIComponent(tracks[i].file))) audio.src = `api/music/${encodeURIComponent(tracks[i].file)}`
-    try { await audio.play(); fade(level); announce() } catch { /* 浏览器要求先有一次点击 */ }
+    // 从一点点音量开始淡入：就算淡入的计时器被浏览器放慢，也不会一直没声音
+    audio.volume = Math.min(level, Math.max(audio.volume, level * 0.35))
+    try { await audio.play(); blocked = false; fade(level, 1200); announce() }
+    catch (e) {
+      // 浏览器不允许没点过就出声（拖文件进来不算「点过」）：记下来，下一次点任何地方就开始放
+      if (e?.name === 'NotAllowedError') { blocked = true; onToast('<b>音乐</b>浏览器拦住了自动播放，点一下页面任意地方就开始放', '#c9a7ff') }
+    }
     render()
   }
   function act(a) {
@@ -92,7 +117,10 @@ export function createMusic({ onToast }) {
   btn.onclick = e => { e.stopPropagation(); togglePanel() }
   document.addEventListener('pointerdown', e => { if (panel.classList.contains('show') && !panel.contains(e.target) && !btn.contains(e.target)) togglePanel(false) })
   // 浏览器不允许没点过就自动出声：第一次点击 / 按键时再开始（点音乐按钮本身不算，交给它自己）
-  const kick = e => { if (btn.contains(e.target) || panel.contains(e.target)) return; if (wanted && audio.paused && tracks.length) play() }
+  const kick = e => {
+    if (!blocked && (btn.contains(e.target) || panel.contains(e.target))) return   // 点音乐按钮 / 面板本身交给它们自己
+    if (wanted && audio.paused && tracks.length) play()
+  }
   addEventListener('pointerdown', kick); addEventListener('keydown', kick)
 
   // 拖歌进来
